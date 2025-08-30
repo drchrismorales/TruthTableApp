@@ -108,6 +108,17 @@ class Statement():
                 outstr += " " + self.connective + " "
         return outstr
 
+    # Comparison operator: Sort first by length of prettyPrint, then lexicographically by prettyPrint
+    #  Should ensure that 
+    #   1) Simpler statements are always before more complex statements in the default evaluation order
+    #   2) The order is consistent and deterministic: all non-identical statements can be ordered
+    def __lt__(self, other):
+        selfstr = self.prettyPrint()
+        otherstr = other.prettyPrint()
+        if len(selfstr) != len(otherstr):
+            return len(selfstr) < len(otherstr)
+        return selfstr < otherstr
+
     # Return a tuple (string, ownership list)
     #  Where string is a string representation of the statement, suitable for display to students
     #  and ownership list is a list of the same length, where each element is either None (for parentheses)
@@ -304,7 +315,7 @@ def calculateTruthTable(statement, value_df=None):
     allSub = statement.reportAllSubstatements()
     allSub = list(allSub)
     # Sort by length of prettyPrint, so that simpler statements are evaluated first
-    allSub.sort(key=lambda x: len(x.prettyPrint()))
+    allSub.sort()
     for s in allSub:
         #Skip simple statements, already in dataframe
         if s.connective is not None:
