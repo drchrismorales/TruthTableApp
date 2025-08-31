@@ -21,7 +21,7 @@ def makeRandomQuestion(connective_list, max_simple, connective_depth, with_repla
         #Note (guaranteed to be binary. Not is not chosen, and we will treat n-ary connectives as binary for random generation)
         question.subStatements.append(makeRandomSubstatement(current_list, connective_list, simple_set, max_simple, connective_coordinator, with_replacement))
     else:
-        substatement = statementParser.Statement(chr(simple_var), 1)
+        substatement = statementParser.Statement(chr(simple_var))
         question.subStatements.append(substatement)
         simple_set.add(chr(simple_var))
         # Pick next substatement
@@ -37,7 +37,7 @@ def makeRandomQuestion(connective_list, max_simple, connective_depth, with_repla
             simple_var += 1
             if(simple_var > ord('Z')):
                 simple_var = ord('A')
-        substatement = statementParser.Statement(chr(simple_var), 1)
+        substatement = statementParser.Statement(chr(simple_var))
         question.subStatements.append(substatement)
         simple_set.add(chr(simple_var))
     random.shuffle(question.subStatements)
