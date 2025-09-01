@@ -127,36 +127,45 @@ class Statement():
     def printStringAndOwnership(self):
         outstr = ""
         ownership = []
+        operators = []
         if self.connective is None:
             outstr = self.text
             ownership = [self]*len(self.text)
+            operators = [False]*len(self.text)
         elif self.connective == "not":
             subdata = self.subStatements[0].printStringAndOwnership()
             substr = subdata[0]
             subownership = subdata[1]
+            suboperators = subdata[2]
             if(self.subStatements[0].connective is not None):
                 outstr = Statement.connectiveCharMap[self.connective] + f"({substr})"
                 # ~ is us, ( and ) are unowned (not really "part" of the substatement, and ditto for us)
                 ownership = [self] + [None] + subownership + [None]
+                operators = [True] + [False] + suboperators + [False]
             else:
                 outstr = Statement.connectiveCharMap[self.connective] + f"{substr}"
                 ownership = [self] + subownership
+                operators = [True] + suboperators
         #else it's an n-ary connective
         else:
             for i in range(len(self.subStatements)):
                 subdata = self.subStatements[i].printStringAndOwnership()
                 substr = subdata[0]
                 subownership = subdata[1]
+                suboperators = subdata[2]
                 if(self.subStatements[i].connective is not None and self.subStatements[i].connective != "not"):
                     outstr += f"({substr})"
                     ownership += [None] + subownership + [None]
+                    operators += [False] + suboperators + [False]
                 else:
                     outstr += f"{substr}"
                     ownership += subownership
+                    operators += suboperators
                 if i < len(self.subStatements) - 1:
                     outstr += Statement.connectiveCharMap[self.connective]
                     ownership += [self]
-        return (outstr, ownership)
+                    operators += [True]
+        return (outstr, ownership, operators)
 
     # Print a version with logical symbols, suitable to display to students
     def prettyPrint(self):
