@@ -277,23 +277,25 @@ class Statement():
         else:
             raise ValueError("Unknown connective", self.connective)
 
-# Check if a given ordering of substatements is a valid ordering for evaluation
-def isValidEvaluationOrder(statement, ordering):
-    if ordering[-1] != statement:
-        return False
-    seenSet = set()
-    for s in ordering[:-1]:
-        if s in seenSet:
+    # Check if a given ordering of substatements is a valid ordering for evaluation for a statement and its substatements
+    #  i.e. no statement appears before any of its substatements, and the final statement is this statement
+    # The ordering should be a list of Statement objects
+    def isValidEvaluationOrder(self, ordering):
+        if ordering[-1] != self:
             return False
-        if s.connective is None:
-            seenSet.add(s)
-        else:
-            substatementSet = s.reportAllSubstatements()
-            for sub in substatementSet:
-                if sub not in seenSet:
-                    return False
-            seenSet.add(s)
-    return True
+        seenSet = set()
+        for s in ordering[:-1]:
+            if s in seenSet:
+                return False
+            if s.connective is None:
+                seenSet.add(s)
+            else:
+                substatementSet = s.reportAllSubstatements()
+                for sub in substatementSet:
+                    if sub not in seenSet:
+                        return False
+                seenSet.add(s)
+        return True
 
 # Compare two dataframes (truth tables) for equivalence (ie, same columns and rows, but row and column order may differ)
 def dataframesEquivalent(df1, df2):
