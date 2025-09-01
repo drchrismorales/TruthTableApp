@@ -192,6 +192,9 @@ class Statement():
             for s in self.subStatements:
                 returnset.update(s.reportAllSubstatements())
         return returnset
+    
+    def countComplexSubstatements(self):
+        return len(self.reportAllSubstatements()) - len(self.reportSimpleStatements())
 
     # Creates a new Directed Acyclic Graph (DAG) statement where each distinct substatement is represented by a single Statement object,
     #  and all references to that substatement point to that single object
