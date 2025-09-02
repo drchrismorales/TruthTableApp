@@ -17,7 +17,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             path = '/truth_table_question'
 
         # Check for question in cookie
-        st, split, nIDed, ordering = self.get_current_question_from_cookie(self.headers)
+        st, st_DAG, split, nIDed, ordering = self.get_current_question_from_cookie(self.headers)
 
         # Route as-needed based on path and question status
         # Special overide cases (favicon, no question)
@@ -32,19 +32,19 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         elif path == '/identify_substatements_check':
             response_cookie, response_body = self.checkIdentifySubstatementsPage(st, nIDed)
         elif path == '/order_check':
-            response_cookie, response_body = self.checkOrderSubstatementsPage(st)
+            response_cookie, response_body = self.checkOrderSubstatementsPage(st_DAG)
         elif path == '/truth_table_check':
-            response_cookie, response_body = self.checkTruthTablePage(st, ordering)
+            response_cookie, response_body = self.checkTruthTablePage(st_DAG, ordering)
 
         # Route to current question step pages based on question status
         elif not split:
             response_cookie, response_body = self.splitStatementPage(st)
         elif nIDed < st.countComplexSubstatements():
             response_cookie, response_body = self.identifySubstatementsPage(st, nIDed)
-        elif len(ordering) < len(list(st.reportAllSubstatements())):
-            response_cookie, response_body = self.orderSubstatementsPage(st)
+        elif len(ordering) < len(list(st_DAG.reportAllSubstatements())):
+            response_cookie, response_body = self.orderSubstatementsPage(st_DAG)
         elif path == '/truth_table_question':
-            response_cookie, response_body = self.truthTablePage(st, ordering)
+            response_cookie, response_body = self.truthTablePage(st_DAG, ordering)
         else:
             self.send_response(404)
             self.end_headers()
@@ -406,6 +406,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         split = False
         nIDed = 0
         ordering = []
+        default_value = (None, None, False, 0, [])
         if cookie_header:
             cookies = cookie_header.split(';')
             for cookie in cookies:
@@ -415,7 +416,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                         question, split, nIDed, ordering = question.split('&')
                     except:
                         # Malformed cookie
-                        return None, False, 0, []
+                        return default_value
                     # Decode the question
                     question = cookieDecode(question)
                     split = (split == 'True')
@@ -423,7 +424,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                         nIDed = int(nIDed)
                     except:
                         # Malformed cookie
-                        return None, False, 0, []
+                        return default_value
                     if ordering == '[]':
                         ordering = []
                     else:
@@ -433,7 +434,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                             ordering = [int(o) for o in ordering]
                         except:
                             # Malformed cookie
-                            return None, False, 0, []
+                            return default_value
                     break
         if question is not None:
             #try to parse it
@@ -441,10 +442,10 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                 st = statementParser.Statement(question)
             except Exception as e:
                 # Exception handling
-                return None, False, 0, []
-            st = st.rectifyGraph()
-            return st, split, nIDed, ordering
-        return None, False, 0, []
+                return default_value
+            st_DAG = st.rectifyGraph()
+            return st, st_DAG, split, nIDed, ordering
+        return default_value
     
     def get_form_data(self):
         # Retrieve form data from query string
