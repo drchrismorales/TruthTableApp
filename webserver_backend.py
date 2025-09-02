@@ -298,6 +298,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         substatements = list(st.reportAllSubstatements())
         ownership = st.printStringAndOwnership()[1]
         form_data = self.get_form_data()
+        response_cookie = None
         if form_data is None:
             return None, "No form data received."
 
