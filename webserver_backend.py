@@ -60,9 +60,6 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def newQuestionPage(self):
         st = self.getNewQuestion()
-        # If we generated a new question, set the cookie
-        cookie_question = cookieEncode(st.prettyPrint())
-        # Question&Not Split&0 Identified&Empty ordering
         response_cookie = self.bake_cookie(st, False, 0, [])
         # Announce new question to student in body
         response_body = (
