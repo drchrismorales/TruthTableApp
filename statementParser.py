@@ -194,7 +194,11 @@ class Statement():
         return returnset
     
     def countComplexSubstatements(self):
-        return len(self.reportAllSubstatements()) - len(self.reportSimpleStatements())
+        i = 0
+        for s in self.reportAllSubstatements():
+            if s.connective is not None:
+                i += 1
+        return i
 
     # Creates a new Directed Acyclic Graph (DAG) statement where each distinct substatement is represented by a single Statement object,
     #  and all references to that substatement point to that single object
