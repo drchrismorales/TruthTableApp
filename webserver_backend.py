@@ -315,6 +315,11 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                     continue
         # Check if the ordering is valid, interface-wise (i.e. all numbers 1 to n used exactly once, no remaining None)
         valid = (None not in selected_ordering) and (len(set(selected_ordering)) == len(selected_ordering))
+        if valid:
+            for i in range(len(selected_ordering)):
+                if selected_ordering[i] < 1 or selected_ordering[i] > len(selected_ordering):
+                    valid = False
+                    break
         if not valid:
             HTML_response = "<html><body><h2>Invalid ordering. Try again.</h2></body></html>"
             # Add a button to "Try again" that also links to the main page
@@ -328,7 +333,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         # Reorder the substatements according to the selected ordering
         ordered_substatements = [x for _, x in sorted(zip(selected_ordering, ordered_substatements))]
         # Check if the ordering is logically valid (i.e. no statement appears before its substatements)
-        correct = st.isValidEvaluationOrder(ordered_substatements)
+        correct = statementParser.isValidEvaluationOrder(ordered_substatements)
         # The Parser considers the natural order to be the sorted order of the substatements, so we need to adjust for that
         tt_order = list(st.reportAllSubstatements())
         tt_order.sort()
@@ -468,6 +473,13 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                 if ownership[i] == sub:
                     sub_indices[i] = sub
                     break
+        #Due to some statements being longer than one character, some indices may be missing, so we need to re-enumerate the values so that no indices are skipped
+        # Enumerate them in sorted order of their original indices
+        enumerated_indices = enumerate(sorted(sub_indices.keys()))
+        # Invert the dictionary to map substatement string index to normalized index
+        inverted_dict = {value: key for key, value in enumerated_indices}
+        # Use the inverted dictionary to create a new dictionary with normalized indices as values
+        sub_indices = {inverted_dict[i]: sub for i, sub in sub_indices.items()}
         return sub_indices
 
     def getNewQuestion(self):
