@@ -2,14 +2,17 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import statementParser
 import questionGenerator
 import pandas as pd
+import statementSorter
 
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         response_cookie = None
         response_body = ""
+        #Fixme: logging
         print("Received GET request for path:", self.path)
         # Split html arguments away from path
+        #Fixme: why is query here?
         path, _, query = self.path.partition('?')
 
         #  For now, if no path was given, default to truth table question page
@@ -220,6 +223,8 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     continue
         # Compare selected to operators
+        print("Selected:", selected)
+        print("Answer key:", operators)
         correct = (selected == operators)
         HTML_response = ""
         if correct:
@@ -274,6 +279,8 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         # Assess correctness
         #  As currently impelmented, parentheses have no owner, so they must be ignored in the comparison
         correct = True
+        print("Selected:", selected)
+        print("Answer key:", answer_key)
         for i in range(len(ownership)):
             if ownership[i] is None:
                 continue
@@ -314,6 +321,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     continue
         # Check if the ordering is valid, interface-wise (i.e. all numbers 1 to n used exactly once, no remaining None)
+        print("Selected ordering:", selected_ordering)
         valid = (None not in selected_ordering) and (len(set(selected_ordering)) == len(selected_ordering))
         if valid:
             for i in range(len(selected_ordering)):
@@ -327,11 +335,15 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             return None, HTML_response
         #Convert the ordering from 1-indexed to 0-indexed
         selected_ordering = [x - 1 for x in selected_ordering]
+        print("Normalized selected ordering:", selected_ordering)
         sub_indices = self.interfaceOrder(substatements, ownership)
+        print("Interface order:", sub_indices)
         # Order the list of substatements by where they first appear in the main statement
         ordered_substatements = [sub_indices[i] for i in sorted(sub_indices.keys())]
+        print("Current substatements:", [s.prettyPrint() for s in ordered_substatements])
         # Reorder the substatements according to the selected ordering
         ordered_substatements = [x for _, x in sorted(zip(selected_ordering, ordered_substatements))]
+        print("Reordered substatements:", [s.prettyPrint() for s in ordered_substatements])
         # Check if the ordering is logically valid (i.e. no statement appears before its substatements)
         correct = statementParser.isValidEvaluationOrder(ordered_substatements)
         # The Parser considers the natural order to be the sorted order of the substatements, so we need to adjust for that
@@ -442,7 +454,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         if question is not None:
             #try to parse it
             try:
-                st = statementParser.Statement(question)
+                st = statementSorter.parse(question)
             except Exception as e:
                 # Exception handling
                 return default_value
@@ -484,8 +496,13 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def getNewQuestion(self):
         # Generate a new question
-        question = questionGenerator.makeRandomQuestion(["and", "or", "not"], 2, 1)
-        st = statementParser.Statement(question)
+        st = statementSorter.parse("P ∧ Q ≡ ~P ∨ ~Q")  # For testing
+        print(st)
+        print(st.prettyPrint())
+        st.rectifyGraph()
+        return st # For testing
+        question = questionGenerator.makeRandomQuestion(["and", "or", "not", "xor","implies","iff"], 2, 2)
+        st = statementSorter.parse(question)
         st = st.rectifyGraph()
         return st
 

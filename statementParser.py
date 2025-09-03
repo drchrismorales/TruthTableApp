@@ -1,6 +1,7 @@
 import pandas
+import statementInterface
 
-class Statement():
+class Statement(statementInterface.LogicalStatementInterface):
     nonletterSubstatementStartChars = ['¬', '~', '!']
     connectiveChars = ['&', '∧', '∨', '|', '→', '↔', '⊕']
     connectiveMap = {
