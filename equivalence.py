@@ -1,5 +1,7 @@
 import statementParser
 import statementInterface
+import statementHelpers as sh
+import pandas
 
 # Implements an Equivalence class to represent and check logical equivalence between two Statements
 # Implements the same "interface" methods as Statement for integration with the frontend/backend
@@ -103,7 +105,18 @@ class Equivalence(statementInterface.LogicalStatementInterface):
         raise ValueError("Equivalence is a meta-logic statement, and so cannot be evaluated for an individual valuation.")
 
     def checkEquivalence(self):
-        tt1 = statementParser.calculateTruthTable(self.statement1)
-        tt2 = statementParser.calculateTruthTable(self.statement2)
-        return statementParser.dataframesEquivalent(tt1, tt2)
-
+        simple_statements_1 = self.statement1.reportSimpleStatements()
+        simple_statements_2 = self.statement2.reportSimpleStatements()
+        if simple_statements_1 != simple_statements_2:
+            return False
+        # Create valuation dataframe
+        simple_list = list(simple_statements_1)
+        simple_list.sort()
+        valuations = sh.createValuations(simple_list)
+        df = pandas.DataFrame(valuations)
+        # Evaluate both statements for each row
+        for i in range(len(df)):
+            row = df.iloc[i]
+            if self.statement1.evaluate(row) != self.statement2.evaluate(row):
+                return False
+        return True

@@ -2,6 +2,7 @@ from tkinter import *
 import statementParser
 import questionGenerator
 import pandas
+import statementHelpers as sh
 
 root = Tk()  
 root.geometry("600x350")  
@@ -45,9 +46,9 @@ def extract_values():
     # Stack the values into a DataFrame
     df = pandas.DataFrame(values, columns=[s.prettyPrint() for s in statements])
     print(df)
-    answerkey = statementParser.calculateTruthTable(st)
+    answerkey = sh.calculateTruthTable(st)
     print(answerkey)
-    correct = statementParser.dataframesEquivalent(answerkey, df)
+    correct = sh.dataframesEquivalent(answerkey, df)
     if correct:
         lbl.config(text="Correct!")
     else:

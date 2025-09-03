@@ -2,6 +2,7 @@ import statementParser
 import questionGenerator
 import random
 import pandas
+import statementHelpers as sh
 
 def test(text):
     st = statementParser.Statement(text)
@@ -24,7 +25,7 @@ def test(text):
     ## Truth table
     #######################################################
     print("Truth table")
-    ttOne = statementParser.calculateTruthTable(st)
+    ttOne = sh.calculateTruthTable(st)
     #df['Result'] = df.apply(lambda row: st.evaluate(row.to_dict()), axis=1)
     print(ttOne)
     #Manually provide shuffled valuations
@@ -40,9 +41,9 @@ def test(text):
             valuations[s] = [True] * oldlen + [False] * oldlen
     df = pandas.DataFrame(valuations)
     df = df.sample(frac=1).reset_index(drop=True)  # Shuffle rows
-    ttTwo = statementParser.calculateTruthTable(st, df)
+    ttTwo = sh.calculateTruthTable(st, df)
     print(ttTwo)
-    print("Truth tables equivalent:", statementParser.dataframesEquivalent(ttOne, ttTwo))
+    print("Truth tables equivalent:", sh.dataframesEquivalent(ttOne, ttTwo))
     st.printTree()
 
 if __name__ == "__main__":

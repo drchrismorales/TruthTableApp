@@ -3,6 +3,9 @@ import statementParser
 import questionGenerator
 import pandas as pd
 import statementSorter
+import statementInterface
+import equivalence
+import statementHelpers as sh
 
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
@@ -20,8 +23,11 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             path = '/truth_table_question'
 
         # Check for question in cookie
-        st, st_DAG, split, nIDed, ordering = self.get_current_question_from_cookie(self.headers)
+        st, st_DAG, split, nIDed, ordering, tt_row_ordering, subsequent_step = self.get_current_question_from_cookie(self.headers)
 
+        question_type = "Equivalence" if isinstance(st, equivalence.Equivalence) else "Statement"
+
+        form_data = self.get_form_data()
         # Route as-needed based on path and question status
         # Special overide cases (favicon, no question)
         if path == '/favicon.ico':
@@ -31,23 +37,38 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             response_cookie, response_body = self.newQuestionPage()
         # Route to check pages based on path
         elif path == '/split_check':
-            response_cookie, response_body = self.checkSplitStatementPage(st)
+            response_cookie, response_body = self.checkSplitStatementPage(form_data, st)
         elif path == '/identify_substatements_check':
-            response_cookie, response_body = self.checkIdentifySubstatementsPage(st, nIDed)
+            response_cookie, response_body = self.checkIdentifySubstatementsPage(form_data, st, nIDed)
         elif path == '/order_check':
-            response_cookie, response_body = self.checkOrderSubstatementsPage(st_DAG)
+            response_cookie, response_body = self.checkOrderSubstatementsPage(form_data, st_DAG)
         elif path == '/truth_table_check':
-            response_cookie, response_body = self.checkTruthTablePage(st_DAG, ordering)
+            response_cookie, response_body = self.checkTruthTablePage(form_data, st_DAG, ordering, question_type)
+        elif path == '/identify_columns_check':
+            response_cookie, response_body = self.checkIdentifyColumnsPage(form_data, st_DAG, ordering, tt_row_ordering)
+        elif path == '/equivalence_check':
+            response_cookie, response_body = self.checkEquivalencePage(form_data, st_DAG, ordering, tt_row_ordering)
 
         # Route to current question step pages based on question status
         elif not split:
             response_cookie, response_body = self.splitStatementPage(st)
         elif nIDed < st.countComplexSubstatements():
             response_cookie, response_body = self.identifySubstatementsPage(st, nIDed)
-        elif len(ordering) < len(list(st_DAG.reportAllSubstatements())):
+        elif len(ordering) != len(list(st_DAG.reportAllSubstatements())):
             response_cookie, response_body = self.orderSubstatementsPage(st_DAG)
-        elif path == '/truth_table_question':
+        elif len(tt_row_ordering) != 2**len(list(st_DAG.reportSimpleStatements())):
             response_cookie, response_body = self.truthTablePage(st_DAG, ordering)
+        elif question_type == "Statement":
+            #That was the last question
+            response_cookie, response_body = self.newQuestionPage()
+        elif question_type == "Equivalence":
+            if subsequent_step == 0:
+                response_cookie, response_body = self.identifyColumnsPage(st_DAG, ordering, tt_row_ordering)
+            elif subsequent_step == 1:
+                response_cookie, response_body = self.equivalentQuestionPage(st_DAG, ordering, tt_row_ordering)
+            else:
+                #That was the last question
+                response_cookie, response_body = self.newQuestionPage()
         else:
             self.send_response(404)
             self.end_headers()
@@ -62,8 +83,9 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(response_body.encode("utf-8"))
 
     def newQuestionPage(self):
+        #type: () -> tuple[str|None, str]
         st = self.getNewQuestion()
-        response_cookie = self.bake_cookie(st, False, 0, [])
+        response_cookie = self.bake_cookie(st, False, 0, [], [], 0)
         # Announce new question to student in body
         response_body = (
             "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>New Question</title></head>"
@@ -77,7 +99,21 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         )
         return response_cookie, response_body
 
+    def getNewQuestion(self):
+        #type: () -> statementInterface.LogicalStatementInterface
+        # Generate a new question
+        st = statementSorter.parse("P ∧ Q ≡ ~P ∨ ~Q")  # For testing
+        print(st)
+        print(st.prettyPrint())
+        st.rectifyGraph()
+        return st # For testing
+        question = questionGenerator.makeRandomQuestion(["and", "or", "not", "xor","implies","iff"], 2, 2)
+        st = statementSorter.parse(question)
+        st = st.rectifyGraph()
+        return st
+
     def splitStatementPage(self, st):
+        #type: (statementInterface.LogicalStatementInterface) -> tuple[str|None, str]
         questionData = st.printStringAndOwnership()
         questionStr = questionData[0]
         # Ask the student to identify all logical operators in the statement
@@ -101,6 +137,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     #Assumes that all operators that occur in the statement before nIDed have been identified,
     # so it displays them.
     def identifySubstatementsPage(self, st, nIDed):
+        #type: (statementInterface.LogicalStatementInterface, int) -> tuple[str|None, str]
         questionData = st.printStringAndOwnership()
         questionStr = questionData[0]
         operators = questionData[2]
@@ -139,6 +176,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         return None, HTML_out
 
     def orderSubstatementsPage(self, st):
+        #type: (statementInterface.LogicalStatementInterface) -> tuple[str|None, str]
         substatements = list(st.reportAllSubstatements())
         ownership = st.printStringAndOwnership()[1]
         n_substatements = len(substatements)
@@ -165,6 +203,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         return None, HTML_out
 
     def truthTablePage(self, st, ordering):
+        #type: (statementInterface.LogicalStatementInterface, list[int]) -> tuple[str|None, str]
         question = st.prettyPrint()
         simple = list(st.reportSimpleStatements())
         statements = list(st.reportAllSubstatements())
@@ -203,12 +242,80 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
         #return: No cookie, HTML body
         return None, HTML_out
+    def identifyColumnsPage(self, st, ordering, tt_row_ordering):
+        #type: (statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[str|None, str]
+        question = st.prettyPrint()
+        statements = list(st.reportAllSubstatements())
+        ncols = len(statements)
+        m = ncols
+        statements.sort()
+        # Use the helper to recreate the truth table
+        df = recreateTruthTable(st, ordering, tt_row_ordering)
+        if df is None:
+            return None, "<html><body><h2>Error: Could not recreate truth table.</h2></body></html>"
+        # Print out the truth table with the correct answers filled in, and checkboxes below each column
+        HTML_out = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Identify the columns needed to answer the {question}</title></head><body>"
+        HTML_out += f"<h2>Identify the columns that are needed to answer the question: {question}</h2>"
+        HTML_out += "<form method='GET' action='/identify_columns_check'>"
+        #Begin the table
+        HTML_out += "<table border='1'>"
+        # Print the truth table
+        HTML_out += printTruthTableToTD(df)
+        # Print checkboxes below each column
+        HTML_out += "<tr>"
+        for j in range(m):
+            HTML_out += f"<td><input type='checkbox' name='col_{j}' /></td>"
+        HTML_out += "</tr>"
+        HTML_out += "</table>"
+        HTML_out += "<input type='submit' value='Submit' formaction='/identify_columns_check' />"
+        HTML_out += "</form></body></html>"
+        #return: No cookie, HTML body
+        return None, HTML_out
 
-    def checkSplitStatementPage(self, st):
+    def equivalentQuestionPage(self, st, ordering, tt_row_ordering):
+        #type: (statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[str|None, str]
+        # Recreate the truth table
+        if not isinstance(st, equivalence.Equivalence):
+            return None, "<html><body><h2>Error: Not an equivalence question.</h2></body></html>"
+        df = recreateTruthTable(st, ordering, tt_row_ordering)
+        if df is None:
+            return None, "<html><body><h2>Error: Could not recreate truth table.</h2></body></html>"
+        question = st.prettyPrint()
+        # Ask the student if the two statements are equivalent, printing the truth table with up-arrows under the columns that are needed to answer the question
+        HTML_out = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Are the two statements equivalent?</title></head><body>"
+        HTML_out += f"<h2>Are the two statements equivalent? {question}</h2>"
+        HTML_out += "<form method='GET' action='/equivalence_check'>"
+        #Begin the table
+        HTML_out += "<table border='1'>"
+        # Print the truth table
+        HTML_out += printTruthTableToTD(df)
+        # Print a (mostly-empty) row with up-arrows under the columns that are needed to answer the question
+        right_side = st.statement2.prettyPrint()
+        left_side = st.statement1.prettyPrint()
+        HTML_out += "<tr>"
+        for col in df.columns:
+            if col == left_side or col == right_side:
+                HTML_out += "<td>↑</td>"
+            else:
+                HTML_out += "<td></td>"
+        HTML_out += "</tr>"
+        HTML_out += "</table>"
+        # Add radio buttons for Yes/No
+        HTML_out += "<p>Are the two statements equivalent?</p>"
+        HTML_out += "<input type='radio' id='yes' name='equiv' value='yes'>"
+        HTML_out += "<label for='yes'>Yes</label><br>"
+        HTML_out += "<input type='radio' id='no' name='equiv' value='no'>"
+        HTML_out += "<label for='no'>No</label><br>"
+        HTML_out += "<input type='submit' value='Submit' formaction='/equivalence_check' />"
+        HTML_out += "</form></body></html>"
+        #return: No cookie, HTML body
+        return None, HTML_out
+
+    def checkSplitStatementPage(self, form_data, st):
+        #type: (dict, statementInterface.LogicalStatementInterface) -> tuple[str|None, str]
         questionData = st.printStringAndOwnership()
         operators = questionData[2]
         response_cookie = None
-        form_data = self.get_form_data()
         if form_data is None:
             return None, "No form data received."
         # Check which checkboxes were ticked
@@ -230,7 +337,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         if correct:
             # Update the cookie to mark the statement as split
             cookie_question = cookieEncode(st.prettyPrint())
-            response_cookie = self.bake_cookie(st, True, 0, [])
+            response_cookie = self.bake_cookie(st, True, 0, [], [], 0)
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             # Add a button to "Continue" that links to the main page
             HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
@@ -240,7 +347,8 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
         return response_cookie, HTML_response
 
-    def checkIdentifySubstatementsPage(self, st, nIDed):
+    def checkIdentifySubstatementsPage(self, form_data, st, nIDed):
+        #type: (dict, statementInterface.LogicalStatementInterface, int) -> tuple[str|None, str]
         questionData = st.printStringAndOwnership()
         questionStr = questionData[0]
         ownership = questionData[1]
@@ -252,7 +360,6 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             # Should be impossible, we don't route here if nIDed is >= number of operators
             return None, "<html><body><h2>Error: No more operators to identify.</h2></body></html>"
         current_op_index = operator_indices[nIDed]
-        form_data = self.get_form_data()
         if form_data is None:
             return None, "No form data received."
         # Check which checkboxes were ticked
@@ -290,7 +397,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         HTML_response = ""
         if correct:
             # Update the cookie to mark the next operator as to be identified
-            response_cookie = self.bake_cookie(st, True, nIDed + 1, [])
+            response_cookie = self.bake_cookie(st, True, nIDed + 1, [], [], 0)
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             # Add a button to "Continue" that links to the main page
             HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
@@ -300,11 +407,11 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
         return response_cookie, HTML_response
 
-    def checkOrderSubstatementsPage(self, st):
+    def checkOrderSubstatementsPage(self, form_data, st):
+        #type: (dict, statementInterface.LogicalStatementInterface) -> tuple[str|None, str]
         # Get all substatements
         substatements = list(st.reportAllSubstatements())
         ownership = st.printStringAndOwnership()[1]
-        form_data = self.get_form_data()
         response_cookie = None
         if form_data is None:
             return None, "No form data received."
@@ -345,7 +452,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         ordered_substatements = [x for _, x in sorted(zip(selected_ordering, ordered_substatements))]
         print("Reordered substatements:", [s.prettyPrint() for s in ordered_substatements])
         # Check if the ordering is logically valid (i.e. no statement appears before its substatements)
-        correct = statementParser.isValidEvaluationOrder(ordered_substatements)
+        correct = sh.isValidEvaluationOrder(ordered_substatements)
         # The Parser considers the natural order to be the sorted order of the substatements, so we need to adjust for that
         tt_order = list(st.reportAllSubstatements())
         tt_order.sort()
@@ -355,7 +462,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         HTML_response = ""
         if correct:
             # Update the cookie with the new ordering
-            response_cookie = self.bake_cookie(st, True, len(substatements), tt_indices)
+            response_cookie = self.bake_cookie(st, True, len(substatements), tt_indices, [], 0)
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             # Add a button to "Continue" that links to the main page
             HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
@@ -365,9 +472,9 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
         return response_cookie, HTML_response
 
-    def checkTruthTablePage(self, st, ordering):
+    def checkTruthTablePage(self, form_data, st, ordering, question_type):
+        #type: (dict, statementInterface.LogicalStatementInterface, list[int], str) -> tuple[str|None, str]
         cookie_text = None
-        form_data = self.get_form_data()
         if form_data is None:
             return None, "No form data received."
         simple = list(st.reportSimpleStatements())
@@ -390,10 +497,93 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                 df.at[int(i), int(j)] = value
         # Evaluate the truth table
         result = evaluateTruthTable(df, st, statements)
+        correct = result[0]
+        tt_ordering = result[1]
         HTML_response = ""
         if result:
-            #Also drop the cookie
-            cookie_text = "current_question=; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+            cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_ordering, 0)
+            HTML_response = "<html><body><h2>Correct!</h2></body></html>"
+            if question_type == 'Statement':
+                # Add a button to "Try another question" that links to /truth_table_question
+                HTML_response += "<form method='GET' action='/truth_table_question'><input type='submit' value='Try another question' /></form>"
+            else:
+                # Add a button to "Continue" that links to the main page
+                HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
+        else:
+            HTML_response = "<html><body><h2>Incorrect. Try again.</h2></body></html>"
+            # Add a button to "Try again" that links to /truth_table_question
+            HTML_response += "<form method='GET' action='/truth_table_question'><input type='submit' value='Try again' /></form>"
+
+        return cookie_text, HTML_response
+    def checkIdentifyColumnsPage(self, form_data, st, ordering, tt_row_ordering):
+        #type: (dict, statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[str|None, str]
+        cookie_text = None
+        if form_data is None:
+            return None, "No form data received."
+        simple = list(st.reportSimpleStatements())
+        statements = list(st.reportAllSubstatements())
+        statements.sort()
+        # Reorder the statements according to the provided ordering
+        if ordering != []:
+            if len(ordering) == len(statements):
+                statements = [statements[i] for i in ordering]
+            else:
+                return None, "<html><body><h2>Error: Ordering length does not match number of statements.</h2></body></html>"
+        # Check if the marked columns correspond to the two sub-statements of the equivalence
+        if not isinstance(st, equivalence.Equivalence):
+            return None, "<html><body><h2>Error: Current statement is not an equivalence.</h2></body></html>"
+        left, right = st.statement1, st.statement2
+        left_index = statements.index(left)
+        right_index = statements.index(right)
+        selected = [False] * len(statements)
+        for key in form_data.keys():
+            if key.startswith('col_'):
+                _, j = key.split('_')
+                try:
+                    idx = int(j)
+                    if 0 <= idx < len(selected):
+                        selected[idx] = True
+                except ValueError:
+                    continue
+        print("Selected columns:", selected)
+        answer_key = [False] * len(statements)
+        answer_key[left_index] = True
+        answer_key[right_index] = True
+        print("Answer key:", answer_key)
+        correct = (selected == answer_key)
+        HTML_response = ""
+        if correct:
+            # Update the cookie to mark the next step as to be answered
+            cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 1)
+            HTML_response = "<html><body><h2>Correct!</h2></body></html>"
+            # Add a button to "Continue" that links to the main page
+            HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
+        else:
+            HTML_response = "<html><body><h2>Incorrect. Try again.</h2></body></html>"
+            # Add a button to "Try again" that also links to the main page
+            HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
+        return cookie_text, HTML_response
+
+    def checkEquivalencePage(self, form_data, st, ordering, tt_row_ordering):
+        #type: (dict, statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[str|None, str]
+        cookie_text = None
+        if form_data is None:
+            return None, "No form data received."
+        if 'equiv' not in form_data:
+            return None, "<html><body><h2>Error: No answer selected.</h2></body></html>"
+        answer = form_data['equiv']
+        if answer not in ['yes', 'no']:
+            return None, "<html><body><h2>Error: Invalid answer selected.</h2></body></html>"
+        if not isinstance(st, equivalence.Equivalence):
+            return None, "<html><body><h2>Error: Current statement is not an equivalence.</h2></body></html>"
+        answer_bool = (answer == 'yes')
+        # Determine if the two statements are actually equivalent
+        answer = st.checkEquivalence()
+        correct = (answer == answer_bool)
+        HTML_response = ""
+        if correct:
+            # Update the cookie to mark the question as completed
+            cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 2)
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             # Add a button to "Try another question" that links to /truth_table_question
             HTML_response += "<form method='GET' action='/truth_table_question'><input type='submit' value='Try another question' /></form>"
@@ -401,68 +591,74 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             HTML_response = "<html><body><h2>Incorrect. Try again.</h2></body></html>"
             # Add a button to "Try again" that links to /truth_table_question
             HTML_response += "<form method='GET' action='/truth_table_question'><input type='submit' value='Try again' /></form>"
-
         return cookie_text, HTML_response
 
-    def bake_cookie(self, st, split, nIDed, ordering):
+    def bake_cookie(self, st, split, nIDed, ordering, tt_row_ordering, subsequent_step):
+        #type: (statementInterface.LogicalStatementInterface, bool, int, list[int], list[int], int) -> str
         cookie_question = cookieEncode(st.prettyPrint())
         cookie_split = 'True' if split else 'False'
-        if ordering == []:
+        if ordering == [] or ordering is None:
             cookie_ordering = '[]'
         else:
             cookie_ordering = '[' + ':'.join([str(i) for i in ordering]) + ']'
-        response_cookie = f"current_question={cookie_question}&{cookie_split}&{nIDed}&{cookie_ordering}; Path=/"
+        if tt_row_ordering == [] or tt_row_ordering is None:
+            cookie_tt_row_ordering = '[]'
+        else:
+            cookie_tt_row_ordering = '[' + ':'.join([str(i) for i in tt_row_ordering]) + ']'
+        response_cookie = f"current_question={cookie_question}&{cookie_split}&{nIDed}&{cookie_ordering}&{cookie_tt_row_ordering}&{subsequent_step}; Path=/"
         return response_cookie
 
     # returns the current question Statement object from the cookie, or None if not found
-    def get_current_question_from_cookie(self, headers):
+    def get_current_question_from_cookie(self, headers): 
+        #type: (str) -> tuple[statementInterface.LogicalStatementInterface|None, statementInterface.LogicalStatementInterface|None, bool, int, list[int], list[int], int]
         cookie_header = headers.get('Cookie')
         question = None
         split = False
         nIDed = 0
         ordering = []
-        default_value = (None, None, False, 0, [])
-        if cookie_header:
-            cookies = cookie_header.split(';')
-            for cookie in cookies:
-                if 'current_question=' in cookie:
-                    question = cookie.split('=')[1].strip()
-                    try:
-                        question, split, nIDed, ordering = question.split('&')
-                    except:
-                        # Malformed cookie
-                        return default_value
-                    # Decode the question
-                    question = cookieDecode(question)
-                    split = (split == 'True')
-                    try:
-                        nIDed = int(nIDed)
-                    except:
-                        # Malformed cookie
-                        return default_value
-                    if ordering == '[]':
-                        ordering = []
-                    else:
-                        try:
-                            ordering = ordering[1:-1]  # Remove the surrounding brackets
-                            ordering = ordering.split(':')
-                            ordering = [int(o) for o in ordering]
-                        except:
-                            # Malformed cookie
-                            return default_value
-                    break
-        if question is not None:
-            #try to parse it
-            try:
-                st = statementSorter.parse(question)
-            except Exception as e:
-                # Exception handling
-                return default_value
-            st_DAG = st.rectifyGraph()
-            return st, st_DAG, split, nIDed, ordering
-        return default_value
-    
+        tt_row_ordering = []
+        subsequent_step = 0
+        default_value = (None, None, False, 0, [], [], 0)
+        if not cookie_header:
+            return default_value
+        cookies = cookie_header.split(';')
+        for cookie in cookies:
+            if 'current_question=' in cookie:
+                question = cookie.split('=')[1].strip()
+                break
+        if question is None:
+            return default_value
+        # Split the cookie into its components
+        try:
+            question, split, nIDed, ordering, tt_row_ordering, subsequent_step = question.split('&')
+        except:
+            # Malformed cookie
+            return default_value
+        # Decode the question
+        question = cookieDecode(question)
+        split = (split == 'True')
+        try:
+            nIDed = int(nIDed)
+            subsequent_step = int(subsequent_step)
+        except:
+            # Malformed cookie
+            return default_value
+        ordering = decode_ordering(ordering)
+        tt_row_ordering = decode_ordering(tt_row_ordering)
+        if ordering is None or tt_row_ordering is None:
+            # Malformed cookie
+            return default_value
+        #Parse the question into a Statement object
+        try:
+            st = statementSorter.parse(question)
+        except Exception as e:
+            # Exception handling
+            return default_value
+        st_DAG = st.rectifyGraph()
+        return st, st_DAG, split, nIDed, ordering, tt_row_ordering, subsequent_step
+
     def get_form_data(self):
+        #type: () -> dict[str, str]
         # Retrieve form data from query string
         post_data = self.path.split('?', 1)[1] if '?' in self.path else None
         if post_data is None:
@@ -477,6 +673,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         return form_data
 
     def interfaceOrder(self, substatements, ownership):
+        #type: (list[statementInterface.LogicalStatementInterface], list[statementInterface.LogicalStatementInterface|None]) -> dict[int, statementInterface.LogicalStatementInterface]
         # Order the list of substatements by where they first appear in the main statement
         sub_indices = {}
         for sub in substatements:
@@ -494,39 +691,94 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         sub_indices = {inverted_dict[i]: sub for i, sub in sub_indices.items()}
         return sub_indices
 
-    def getNewQuestion(self):
-        # Generate a new question
-        st = statementSorter.parse("P ∧ Q ≡ ~P ∨ ~Q")  # For testing
-        print(st)
-        print(st.prettyPrint())
-        st.rectifyGraph()
-        return st # For testing
-        question = questionGenerator.makeRandomQuestion(["and", "or", "not", "xor","implies","iff"], 2, 2)
-        st = statementSorter.parse(question)
-        st = st.rectifyGraph()
-        return st
 
 def evaluateTruthTable(df, statement, statements):
+    #type: (pd.DataFrame, statementInterface.LogicalStatementInterface, list[statementInterface.LogicalStatementInterface]) -> tuple[bool, list[int]|None]
     # Convert 'T'/'F'/'' to True/False/None
     bool_df = df.replace({'T': True, 'F': False, '': None})
     # Rename columns to statement strings
     bool_df.columns = [s.prettyPrint() for s in statements]
     print(f"Evaluating DataFrame:\n{bool_df}")
     # Calculate the correct truth table
-    answerkey = statementParser.calculateTruthTable(statement)
+    answerkey = sh.calculateTruthTable(statement)
     print(f"Answer key:\n{answerkey}")
     # Compare the two DataFrames
-    correct = statementParser.dataframesEquivalent(answerkey, bool_df)
-    print(f"Comparison result: {correct}")
-    return correct
+    comparison_result = sh.dataframesEquivalent(answerkey, bool_df)
+    print(f"Comparison result: {comparison_result}")
+    return comparison_result
 
 def cookieEncode(s):
+    #type: (str) -> str
     # Encode the string to ASCII, replacing non-ASCII characters with escape sequences
     return s.encode('ascii', 'backslashreplace').decode('ascii')
 
 def cookieDecode(question):
+    #type: (str) -> str
     # Decode the cookie-encoded string back to its original form
     return question.encode('ascii').decode('unicode_escape')
 
+def decode_ordering(ordering):
+    #type: (str) -> list[int]|None
+    if ordering == '[]':
+        return []
+    try:
+        ordering = ordering[1:-1]  # Remove the surrounding brackets
+        ordering = ordering.split(':')
+        ordering = [int(o) for o in ordering]
+    except:
+        # Malformed cookie
+        return None
+    return ordering
+
+
+def recreateTruthTable(st, ordering, tt_row_ordering):
+    #type: (statementInterface.LogicalStatementInterface, list[int], list[int]) -> pd.DataFrame
+    statements = list(st.reportAllSubstatements())
+    statements.sort()
+    # Reorder the statements according to the provided ordering
+    if ordering != []:
+        if len(ordering) == len(statements):
+            statements = [statements[i] for i in ordering]
+        else:
+            return None
+    # Calculate the truth table
+    df = sh.calculateTruthTable(st)
+    # Adjust the columns to match the order of statements
+    df = df[[s.prettyPrint() for s in statements]]
+    # Reorder the rows according to the provided tt_row_ordering
+    if tt_row_ordering != []:
+        if len(tt_row_ordering) == len(df):
+            df = df.iloc[tt_row_ordering].reset_index(drop=True)
+        else:
+            return None
+    return df
+
+def printTruthTableToTD(df):
+    #type: (pd.DataFrame) -> str
+    # Convert the DataFrame to data suitable to be included in an HTML table with 'T'/'F' strings
+    n, m = df.shape
+    HTML_out = ""
+    # Output the column names as the first row
+    HTML_out = HTML_out + "<tr>"
+    for col in df.columns:
+        HTML_out = HTML_out + f"<th>{col}</th>"
+    HTML_out = HTML_out + "</tr>"
+    # Output each row of the DataFrame
+    print("DataFrame to print:\n", df)
+    for i in range(n):
+        HTML_out = HTML_out + "<tr>"
+        for j in range(m):
+            val = df.iat[i, j]
+            if val == True:
+                val_str = 'T'
+            elif val == False:
+                val_str = 'F'
+            else:
+                val_str = ''
+            HTML_out = HTML_out + f"<td>{val_str}</td>"
+        HTML_out = HTML_out + "</tr>"
+    return HTML_out
+
 httpd = HTTPServer(('', 8000), SimpleHTTPRequestHandler)
 httpd.serve_forever()
+
