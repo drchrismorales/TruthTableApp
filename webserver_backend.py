@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import pandas as pd
 import equivalence
