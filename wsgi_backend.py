@@ -1,4 +1,9 @@
 #!/usr/bin/python3
+import os
+import sys
+HERE = os.path.dirname(__file__)          # /home/username/public_html
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 from wsgiref.simple_server import make_server
 import pandas as pd  # kept to mirror original imports; remove if unused
 import equivalence
