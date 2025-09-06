@@ -4,6 +4,8 @@ import pandas as pd
 import equivalence
 import questionManager
 
+raise DeprecationWarning("webserver_backend.py is deprecated. Please use wsgi_backend.py instead.")
+
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):

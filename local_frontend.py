@@ -4,6 +4,8 @@ import questionGenerator
 import pandas
 import statementHelpers as sh
 
+raise DeprecationWarning("local_frontend.py is deprecated. Please use wsgi_backend.py in combination with a web browser instead.")
+
 root = Tk()  
 root.geometry("600x350")  
 
