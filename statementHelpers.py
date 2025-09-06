@@ -1,5 +1,6 @@
 import pandas
 import statementInterface
+import logger
 
 # Check if a given ordering of substatements is a valid ordering for evaluation for a statement and its substatements
 #  i.e. no statement appears before any of its substatements, and the final statement is this statement
@@ -15,7 +16,7 @@ def isValidEvaluationOrder(ordering):
             substatementSet = s.reportAllSubstatements()
             for sub in substatementSet:
                 if sub not in seenSet and sub != s:
-                    print("Missing substatement", sub.prettyPrint(), "for statement", s.prettyPrint())
+                    logger.logger.error("Missing substatement: %s for statement: %s", sub.prettyPrint(), s.prettyPrint())
                     return False
             seenSet.add(s)
     return True

@@ -1,5 +1,6 @@
 import pandas
 import statementInterface
+import logger
 
 class Statement(statementInterface.LogicalStatementInterface):
     nonletterSubstatementStartChars = ['¬', '~', '!']

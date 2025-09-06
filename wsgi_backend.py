@@ -3,6 +3,7 @@ from wsgiref.simple_server import make_server
 import pandas as pd  # kept to mirror original imports; remove if unused
 import equivalence
 import questionManager
+import logger
 
 # Instantiate your core logic once (module-level, like before)
 coreLogic = questionManager.QuestionManager()
@@ -28,6 +29,7 @@ def _wsgi_headers_adapter(environ):
 
 
 def _get_form_data(environ):
+    #type: (dict) -> dict|None
     """
     Mirror the original get_form_data behavior exactly:
     - Pull raw query string (no URL decoding)
@@ -51,8 +53,7 @@ def application(environ, start_response):
     method = environ.get('REQUEST_METHOD', 'GET')
     path = environ.get('PATH_INFO', '') or '/'
 
-    # Simple logging (like your print)
-    print("Received {} request for path: {}?{}".format(
+    logger.logger.info("Received {} request for path: {}?{}".format(
         method, path, environ.get('QUERY_STRING', '')
     ))
 
@@ -60,19 +61,22 @@ def application(environ, start_response):
         start_response('405 Method Not Allowed', [('Content-Type', 'text/plain; charset=utf-8')])
         return [b'Method Not Allowed']
 
-    # Default to truth table question page for root
-    if path == '/':
-        path = '/truth_table_question'
-
     headers_adapter = _wsgi_headers_adapter(environ)
 
     # Pull current question from cookie (as before)
-    st, st_DAG, split, nIDed, ordering, tt_row_ordering, subsequent_step = (
+    st, st_DAG, split, nIDed, ordering, tt_row_ordering, subsequent_step, fingerprint = (
         coreLogic.get_current_question_from_cookie(headers_adapter)
     )
 
     question_type = "Equivalence" if isinstance(st, equivalence.Equivalence) else "Statement"
     form_data = _get_form_data(environ)
+
+    page = None
+    if form_data is not None:
+        page = form_data.get('form_name', None)
+
+    # Record the originating IP address for new questions
+    origin_ip = environ.get('REMOTE_ADDR', 'unknown')
 
     response_cookie = None
     response_body = ""
@@ -82,21 +86,22 @@ def application(environ, start_response):
         start_response('204 No Content', [])
         return [b'']
 
-    # Route to check pages (same structure as original)
+    # On first visit or no question, start new question
     if st is None:
-        response_cookie, response_body = coreLogic.newQuestionPage()
-    elif path == '/split_check':
-        response_cookie, response_body = coreLogic.checkSplitStatementPage(form_data, st)
-    elif path == '/identify_substatements_check':
-        response_cookie, response_body = coreLogic.checkIdentifySubstatementsPage(form_data, st, nIDed)
-    elif path == '/order_check':
-        response_cookie, response_body = coreLogic.checkOrderSubstatementsPage(form_data, st_DAG)
-    elif path == '/truth_table_check':
-        response_cookie, response_body = coreLogic.checkTruthTablePage(form_data, st_DAG, ordering, question_type)
-    elif path == '/identify_columns_check':
-        response_cookie, response_body = coreLogic.checkIdentifyColumnsPage(form_data, st_DAG, ordering, tt_row_ordering)
-    elif path == '/equivalence_check':
-        response_cookie, response_body = coreLogic.checkEquivalencePage(form_data, st_DAG, ordering, tt_row_ordering)
+        response_cookie, response_body = coreLogic.newQuestionPage(origin_ip)
+    # Route to check pages based on form_name
+    elif page == 'split_check':
+        response_cookie, response_body = coreLogic.checkSplitStatementPage(form_data, st, fingerprint)
+    elif page == 'identify_substatements_check':
+        response_cookie, response_body = coreLogic.checkIdentifySubstatementsPage(form_data, st, nIDed, fingerprint)
+    elif page == 'order_check':
+        response_cookie, response_body = coreLogic.checkOrderSubstatementsPage(form_data, st_DAG, fingerprint)
+    elif page == 'truth_table_check':
+        response_cookie, response_body = coreLogic.checkTruthTablePage(form_data, st_DAG, ordering, question_type, fingerprint)
+    elif page == 'identify_columns_check':
+        response_cookie, response_body = coreLogic.checkIdentifyColumnsPage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
+    elif page == 'equivalence_check':
+        response_cookie, response_body = coreLogic.checkEquivalencePage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
     # Route to current question step pages based on status
     elif not split:
         response_cookie, response_body = coreLogic.splitStatementPage(st)
@@ -108,7 +113,10 @@ def application(environ, start_response):
         response_cookie, response_body = coreLogic.truthTablePage(st_DAG, ordering)
     elif question_type == "Statement":
         # That was the last question
-        response_cookie, response_body = coreLogic.newQuestionPage()
+        fingerprint_list = coreLogic.retrieve_fingerprint_cookie(headers_adapter)
+        completion_string = coreLogic.checkFingerprint(st, fingerprint, fingerprint_list)  # Final check to aprove or deny completion (Note: mutates fingerprint_list)
+        response_cookie, response_body = coreLogic.newQuestionPage(origin_ip, fingerprint_list, completion_string)
+        response_cookie.append(coreLogic.bake_fingerprint_cookie(fingerprint_list))
     elif question_type == "Equivalence":
         if subsequent_step == 0:
             response_cookie, response_body = coreLogic.identifyColumnsPage(st_DAG, ordering, tt_row_ordering)
@@ -116,15 +124,22 @@ def application(environ, start_response):
             response_cookie, response_body = coreLogic.equivalentQuestionPage(st_DAG, ordering, tt_row_ordering)
         else:
             # That was the last question
-            response_cookie, response_body = coreLogic.newQuestionPage()
+            fingerprint_list = coreLogic.retrieve_fingerprint_cookie(headers_adapter)
+            completion_string = coreLogic.checkFingerprint(st, fingerprint, fingerprint_list)  # Final check to aprove or deny completion (Note: mutates fingerprint_list)
+            response_cookie, response_body = coreLogic.newQuestionPage(origin_ip, fingerprint_list, completion_string)
+            response_cookie.append(coreLogic.bake_fingerprint_cookie(fingerprint_list))
+    # Should be unreachable
     else:
         start_response('404 Not Found', [('Content-Type', 'text/plain; charset=utf-8')])
         return [b'Not Found']
 
     # Build response headers
     headers = [('Content-Type', 'text/html; charset=utf-8')]
-    if response_cookie is not None:
-        headers.append(('Set-Cookie', response_cookie))
+    if response_cookie is not None: #Note: should always pass now that response_cookie is a list
+        # List of cookies. Each cookie to be set needs its own Set-Cookie header
+        for cookie in response_cookie: # If there was no cookie set, the cookie list will typically contain None... because hysterical reasons
+            if cookie is not None:
+                headers.append(('Set-Cookie', cookie))
 
     start_response('200 OK', headers)
     return [response_body.encode('utf-8')]
@@ -133,5 +148,5 @@ def application(environ, start_response):
 if __name__ == '__main__':
     # Local dev server (you can also run under gunicorn/uwsgi, etc.)
     with make_server('', 8000, app) as httpd:
-        print("Serving on port 8000...")
+        logger.logger.info("Serving on port 8000...")
         httpd.serve_forever()

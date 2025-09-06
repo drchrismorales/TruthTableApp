@@ -81,3 +81,70 @@ def makeRandomSubstatement(current_list, connective_list, simple_set, max_simple
             return statementParser.Statement(substatement_text)
     raise ValueError("Should not reach here")
 
+def HomeworkOne(previousQuestions):
+    question_set_one = [
+        "P ∧ Q",
+        "P ∨ Q",
+        "P ↔ Q",
+        "P ⊕ Q",
+        "P → Q",
+        "¬P"
+    ]
+    question_set_two_template = [
+        "P ∧ ¬Q",
+        "¬P ∧ Q",
+        "¬P ∧ ¬Q",
+    ]
+    question_set_two = question_set_two_template.copy()
+    #Build questions set two
+    logic_symbols = ['∨', '↔', '⊕', '→']
+    for template in question_set_two_template:
+        for symbol in logic_symbols:
+            question_set_two.append(template.replace("∧", symbol))
+    # Add some hard-coded equivalence questions
+    question_set_three = [
+        #Correct equivalences
+        "P ↔ Q ≡ (P → Q) ∧ (Q → P)",
+        "P ⊕ Q ≡ (P ∨ Q) ∧ ¬(P ∧ Q)",
+        "P → Q ≡ ¬P ∨ Q",
+        "P ∨ Q ≡ ¬(¬P ∧ ¬Q)",
+        "P ∧ Q ≡ ¬(¬P ∨ ¬Q)",
+        "¬(P ∧ Q) ≡ ¬P ∨ ¬Q",
+        "¬(P ∨ Q) ≡ ¬P ∧ ¬Q",
+        "¬(P → Q) ≡ P ∧ ¬Q",
+        "¬(P ↔ Q) ≡ P ⊕ Q",
+        "¬(P ⊕ Q) ≡ P ↔ Q",
+        #Incorrect equivalences
+        "P ↔ Q ≡ (P → Q) ∨ (Q → P)",
+        "P ⊕ Q ≡ (P ∧ Q) ∨ ¬(P ∨ Q)",
+        "P → Q ≡ ¬P ∧ Q",
+        "P ∨ Q ≡ ¬(¬P ∨ ¬Q)",
+        "P ∧ Q ≡ ¬(¬P ∧ ¬Q)",
+        "¬(P ∧ Q) ≡ ¬P ∧ ¬Q",
+        "¬(P ∨ Q) ≡ ¬P ∨ ¬Q",
+        "¬(P → Q) ≡ P ∨ ¬Q",
+        "¬(P ↔ Q) ≡ P ↔ Q",
+        "¬(P ⊕ Q) ≡ P ⊕ Q",
+    ]
+    prev_counts = [0, 0, 0]
+    tbd_one = question_set_one.copy()
+    tbd_two = question_set_two.copy()
+    tbd_three = question_set_three.copy()
+    for q in previousQuestions:
+        if q in question_set_one:
+            prev_counts[0] += 1
+            tbd_one.remove(q)
+        elif q in question_set_two:
+            prev_counts[1] += 1
+            tbd_two.remove(q)
+        elif q in question_set_three:
+            prev_counts[2] += 1
+            tbd_three.remove(q)
+    if prev_counts[0] < 2:
+        return random.choice(tbd_one)
+    elif prev_counts[1] < 2:
+        return random.choice(tbd_two)
+    elif prev_counts[2] < 2:
+        return random.choice(tbd_three)
+    #Further practice (allows repeats)
+    return random.choice(question_set_one + question_set_two + question_set_three)
