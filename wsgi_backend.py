@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 import os
 import sys
+
+import argument
 HERE = os.path.dirname(__file__)          # /home/username/public_html
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -73,7 +75,7 @@ def application(environ, start_response):
         coreLogic.get_current_question_from_cookie(headers_adapter)
     )
 
-    question_type = "Equivalence" if isinstance(st, equivalence.Equivalence) else "Statement"
+    question_type = "Equivalence" if isinstance(st, equivalence.Equivalence) else "Argument" if isinstance(st, argument.Argument) else "Statement"
     form_data = _get_form_data(environ)
 
     page = None
@@ -107,6 +109,14 @@ def application(environ, start_response):
         response_cookie, response_body = coreLogic.checkIdentifyColumnsPage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
     elif page == 'equivalence_check':
         response_cookie, response_body = coreLogic.checkEquivalencePage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
+    elif page == 'identify_argument_columns_check':
+        response_cookie, response_body = coreLogic.checkIdentifyArgumentPremiseColumnsPage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
+    elif page == 'identify_argument_rows_check':
+        response_cookie, response_body = coreLogic.checkIdentifyArgumentRowsPage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
+    elif page == 'identify_argument_conclusion_check':
+        response_cookie, response_body = coreLogic.checkIdentifyArgumentConclusionColumnPage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
+    elif page == 'argument_validity_check':
+        response_cookie, response_body = coreLogic.checkArgumentValidityPage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
     # Route to current question step pages based on status
     elif not split:
         response_cookie, response_body = coreLogic.splitStatementPage(st)
@@ -118,10 +128,7 @@ def application(environ, start_response):
         response_cookie, response_body = coreLogic.truthTablePage(st_DAG, ordering)
     elif question_type == "Statement":
         # That was the last question
-        fingerprint_list = coreLogic.retrieve_fingerprint_cookie(headers_adapter)
-        completion_string = coreLogic.checkFingerprint(st, fingerprint, fingerprint_list)  # Final check to aprove or deny completion (Note: mutates fingerprint_list)
-        response_cookie, response_body = coreLogic.newQuestionPage(origin_ip, fingerprint_list, completion_string)
-        response_cookie.append(coreLogic.bake_fingerprint_cookie(fingerprint_list))
+        response_cookie, response_body = coreLogic.completeQuestionPage(origin_ip, st, fingerprint, headers_adapter)
     elif question_type == "Equivalence":
         if subsequent_step == 0:
             response_cookie, response_body = coreLogic.identifyColumnsPage(st_DAG, ordering, tt_row_ordering)
@@ -129,10 +136,23 @@ def application(environ, start_response):
             response_cookie, response_body = coreLogic.equivalentQuestionPage(st_DAG, ordering, tt_row_ordering)
         else:
             # That was the last question
-            fingerprint_list = coreLogic.retrieve_fingerprint_cookie(headers_adapter)
-            completion_string = coreLogic.checkFingerprint(st, fingerprint, fingerprint_list)  # Final check to aprove or deny completion (Note: mutates fingerprint_list)
-            response_cookie, response_body = coreLogic.newQuestionPage(origin_ip, fingerprint_list, completion_string)
-            response_cookie.append(coreLogic.bake_fingerprint_cookie(fingerprint_list))
+            response_cookie, response_body = coreLogic.completeQuestionPage(origin_ip, st, fingerprint, headers_adapter)
+    elif question_type == "Argument":
+        if subsequent_step == 0:
+            # Identify premises
+            response_cookie, response_body = coreLogic.identifyArgumentPremiseColumnsPage(st_DAG, ordering, tt_row_ordering)
+        elif subsequent_step == 1:
+            # Mark rows needed to show validity
+            response_cookie, response_body = coreLogic.identifyArgumentRowsPage(st_DAG, ordering, tt_row_ordering)
+        elif subsequent_step == 2:
+            # Identify conclusion
+            response_cookie, response_body = coreLogic.identifyArgumentConclusionColumnPage(st_DAG, ordering, tt_row_ordering)
+        elif subsequent_step == 3:
+            # Determine if argument is valid
+            response_cookie, response_body = coreLogic.argumentQuestionPage(st_DAG, ordering, tt_row_ordering)
+        else:
+            # That was the last question
+            response_cookie, response_body = coreLogic.completeQuestionPage(origin_ip, st, fingerprint, headers_adapter)
     # Should be unreachable
     else:
         start_response('404 Not Found', [('Content-Type', 'text/plain; charset=utf-8')])
