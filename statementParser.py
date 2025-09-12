@@ -283,3 +283,26 @@ class Statement(statementInterface.LogicalStatementInterface):
         else:
             raise ValueError("Unknown connective", self.connective)
 
+def negate(statement):
+    out = Statement(statement.text)
+    if statement.connective == "not":
+        out = statement.subStatements[0]
+    elif statement.connective is None:
+        out.connective = "not"
+        out.subStatements = [statement]
+    elif statement.connective == "xor":
+        out.connective = "iff"
+    elif statement.connective == "iff":
+        out.connective = "xor"
+    elif statement.connective == "and":
+        out.connective = "or"
+        out.subStatements = [negate(s) for s in statement.subStatements]
+    elif statement.connective == "or":
+        out.connective = "and"
+        out.subStatements = [negate(s) for s in statement.subStatements]
+    elif statement.connective == "implies":
+        out.connective = "and"
+        out.subStatements = [statement.subStatements[0], negate(statement.subStatements[1])]
+    else:
+        raise ValueError("Unknown connective", statement.connective)
+    return out
