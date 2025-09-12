@@ -33,7 +33,7 @@ class QuestionManager:
         )
         # Add a "start working" button that will begin the first step
         response_body += (
-            "<form method='GET' action='/'>"
+            "<form method='GET' action='/app'>"
             "<input type='submit' value='Start working on it' />"
             "</form></body></html>"
         )
@@ -148,7 +148,7 @@ class QuestionManager:
         HTML_out = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Split Statement for {questionStr}</title></head><body>"
         HTML_out = HTML_out + f"<h2>Identify the logical operators in the statement: </h2>"
         # Output a table where each column contains a checkbox above one character of the statement
-        HTML_out = HTML_out + "<form method='GET' action='/'>"
+        HTML_out = HTML_out + "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='split_check' />"
         HTML_out = HTML_out + "<table border='1'><tr>"
         for i in range(len(questionStr)):
@@ -157,7 +157,7 @@ class QuestionManager:
         for i in range(len(questionStr)):
             HTML_out = HTML_out + f"<td>{questionStr[i]}</td>"
         HTML_out = HTML_out + "</tr></table>"
-        HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/split_check' />"
+        HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/app' />"
         HTML_out = HTML_out + "</form></body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
@@ -182,7 +182,7 @@ class QuestionManager:
         # Row 3: Checkboxes, one per character, to identify which are part of the current operator (With no checkbox below the current operator)
         HTML_out = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Which symbols belong to the substatement(s) of the indicated operator?</title></head><body>"
         HTML_out = HTML_out + f"<h2>Which symbols belong to the substatement(s) of the indicated operator?</h2>"
-        HTML_out = HTML_out + "<form method='GET' action='/'>"
+        HTML_out = HTML_out + "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='identify_substatements_check' />"
         HTML_out = HTML_out + "<table border='1'><tr>"
         for i in range(len(questionStr)):
@@ -218,7 +218,7 @@ class QuestionManager:
 
         # Print a two-column n-row table, where the first column contains the substatement,
         # and the second column contains a dropdown to select its order (1 to n_substatements)
-        HTML_out = HTML_out + "<form method='GET' action='/'>"
+        HTML_out = HTML_out + "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='order_check' />"
         HTML_out = HTML_out + "<table border='1'><tr><th>Substatement</th><th>Order</th></tr>"
         for index in sorted(sub_indices.keys()):
@@ -228,7 +228,7 @@ class QuestionManager:
                 HTML_out = HTML_out + f"<option value='{order}'>{order}</option>"
             HTML_out = HTML_out + "</select></td></tr>"
         HTML_out = HTML_out + "</table>"
-        HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/' />"
+        HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/app' />"
         HTML_out = HTML_out + "</form></body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
@@ -251,7 +251,7 @@ class QuestionManager:
         # Print out a truth table with dropdowns for each cell
         HTML_out = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Truth Table for {question}</title></head><body>"
         HTML_out = HTML_out + f"<h2>Fill in the Truth Table for {question}</h2>"
-        HTML_out = HTML_out + f"<form method='GET' action='/'>"
+        HTML_out = HTML_out + f"<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='truth_table_check' />"
         # Print the statement headers
         HTML_out = HTML_out + "<table border='1'><tr>"
@@ -269,7 +269,7 @@ class QuestionManager:
                 )
             HTML_out = HTML_out + "</tr>"
         HTML_out = HTML_out + "</table>"
-        HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/' />"
+        HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/app' />"
         HTML_out = HTML_out + "</form></body></html>"
 
         #return: No cookie, HTML body
@@ -288,7 +288,7 @@ class QuestionManager:
         # Print out the truth table with the correct answers filled in, and checkboxes below each column
         HTML_out = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Identify the columns needed to answer the {question}</title></head><body>"
         HTML_out += f"<h2>Identify the columns that are needed to answer the question: {question}</h2>"
-        HTML_out += "<form method='GET' action='/'>"
+        HTML_out += "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='identify_columns_check' />"
         #Begin the table
         HTML_out += "<table border='1'>"
@@ -300,7 +300,7 @@ class QuestionManager:
             HTML_out += f"<td><input type='checkbox' name='col_{j}' /></td>"
         HTML_out += "</tr>"
         HTML_out += "</table>"
-        HTML_out += "<input type='submit' value='Submit' formaction='/' />"
+        HTML_out += "<input type='submit' value='Submit' formaction='/app' />"
         HTML_out += "</form></body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
@@ -317,7 +317,7 @@ class QuestionManager:
         # Ask the student if the two statements are equivalent, printing the truth table with up-arrows under the columns that are needed to answer the question
         HTML_out = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Are the two statements equivalent?</title></head><body>"
         HTML_out += f"<h2>Are the two statements equivalent? {question}</h2>"
-        HTML_out += "<form method='GET' action='/'>"
+        HTML_out += "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='equivalence_check' />"
         #Begin the table
         HTML_out += "<table border='1'>"
@@ -340,7 +340,7 @@ class QuestionManager:
         HTML_out += "<label for='yes'>Yes</label><br>"
         HTML_out += "<input type='radio' id='no' name='equiv' value='no'>"
         HTML_out += "<label for='no'>No</label><br>"
-        HTML_out += "<input type='submit' value='Submit' formaction='/' />"
+        HTML_out += "<input type='submit' value='Submit' formaction='/app' />"
         HTML_out += "</form></body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
@@ -374,11 +374,11 @@ class QuestionManager:
             response_cookie = self.bake_cookie(st, True, 0, [], [], 0, fingerprint)
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' /></form>"
         else:
             HTML_response = "<html><body><h2>Incorrect. Try again.</h2></body></html>"
             # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' /></form>"
         return [response_cookie], HTML_response
 
     def checkIdentifySubstatementsPage(self, form_data, st, nIDed, fingerprint):
@@ -434,11 +434,11 @@ class QuestionManager:
             response_cookie = self.bake_cookie(st, True, nIDed + 1, [], [], 0, fingerprint)
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' /></form>"
         else:
             HTML_response = "<html><body><h2>Incorrect. Try again.</h2></body></html>"
             # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' /></form>"
         return [response_cookie], HTML_response
 
     def checkOrderSubstatementsPage(self, form_data, st, fingerprint):
@@ -472,7 +472,7 @@ class QuestionManager:
         if not valid:
             HTML_response = "<html><body><h2>Invalid ordering. Try again.</h2></body></html>"
             # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' /></form>"
             return [None], HTML_response
         #Convert the ordering from 1-indexed to 0-indexed
         selected_ordering = [x - 1 for x in selected_ordering]
@@ -499,11 +499,11 @@ class QuestionManager:
             response_cookie = self.bake_cookie(st, True, len(substatements), tt_indices, [], 0, fingerprint)
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' /></form>"
         else:
             HTML_response = "<html><body><h2>Incorrect. Try again.</h2></body></html>"
             # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' /></form>"
         return [response_cookie], HTML_response
 
     def checkTruthTablePage(self, form_data, st, ordering, question_type, fingerprint):
@@ -539,14 +539,14 @@ class QuestionManager:
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             if question_type == 'Statement':
                 # Add a button to "Try another question" that links to /
-                HTML_response += "<form method='GET' action='/'><input type='submit' value='Try another question' /></form>"
+                HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try another question' /></form>"
             else:
                 # Add a button to "Continue" that links to the main page
-                HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
+                HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' /></form>"
         else:
             HTML_response = "<html><body><h2>Incorrect. Try again.</h2></body></html>"
             # Add a button to "Try again" that links to /
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' /></form>"
 
         return [cookie_text], HTML_response
     def checkIdentifyColumnsPage(self, form_data, st, ordering, tt_row_ordering, fingerprint):
@@ -554,7 +554,6 @@ class QuestionManager:
         cookie_text = None
         if form_data is None:
             return [None], "No form data received."
-        simple = list(st.reportSimpleStatements())
         statements = list(st.reportAllSubstatements())
         statements.sort()
         # Reorder the statements according to the provided ordering
@@ -591,11 +590,11 @@ class QuestionManager:
             cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 1, fingerprint)
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Continue' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' /></form>"
         else:
             HTML_response = "<html><body><h2>Incorrect. Try again.</h2></body></html>"
             # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' /></form>"
         return [cookie_text], HTML_response
 
     def checkEquivalencePage(self, form_data, st, ordering, tt_row_ordering, fingerprint):
@@ -620,11 +619,11 @@ class QuestionManager:
             cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 2, fingerprint)
             HTML_response = "<html><body><h2>Correct!</h2></body></html>"
             # Add a button to "Try another question" that links to /
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Try another question' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try another question' /></form>"
         else:
             HTML_response = "<html><body><h2>Incorrect. Try again.</h2></body></html>"
             # Add a button to "Try again" that links to /
-            HTML_response += "<form method='GET' action='/'><input type='submit' value='Try again' /></form>"
+            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' /></form>"
         return [cookie_text], HTML_response
 
     def bake_cookie(self, st, split, nIDed, ordering, tt_row_ordering, subsequent_step, fingerprint):
