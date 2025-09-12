@@ -172,6 +172,6 @@ def application(environ, start_response):
 
 if __name__ == '__main__':
     # Local dev server (you can also run under gunicorn/uwsgi, etc.)
-    with make_server('', 8000, app) as httpd:
+    with make_server('', 8000, application) as httpd:
         logger.logger.info("Serving on port 8000...")
         httpd.serve_forever()
