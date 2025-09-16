@@ -11,6 +11,9 @@ import hashlib
 import logger
 import urllib.parse
 
+hwkNumList = ["2", "3"]  # Add to this for each homework assignment to prevent reuse of old completion codes
+numToDoList = [6, 2]  # Number of questions to complete for each homework assignment
+
 class QuestionManager:
     def newQuestionPage(self, origin_ip, completion_codes = [], completion_string=None):
         #type: (str, list[str], str) -> tuple[list[str|None], str]
@@ -20,7 +23,7 @@ class QuestionManager:
         #  as it's all in good fun. But we do want to be able to detect if problems are substituted, or if two students submit the same completion token.
         # Finger print will be time the question was generated, the IP address of the requester, and the text of the statement, encrypted with a symmetric key
         time = str(pd.Timestamp.now().value) # Get current time as integer nanoseconds since epoch, convert to string
-        fingerprint = f"{origin_ip}[]{time}[]{st.prettyPrint()}"
+        fingerprint = f"{origin_ip}[]{time}[]{st.prettyPrint()}[]{hwkNumList[-1]}[]Started"
         # Retrieve encryption key from file
         key = self.get_key()
         fernet = f.Fernet(key)
@@ -37,19 +40,16 @@ class QuestionManager:
         response_body += (
             "<form method='GET' action='/app'>"
             "<input type='submit' value='Start working on it' />"
-            "</form></body></html>"
+            "</form>"
         )
+        response_body += self.standardButtons()
         if completion_string is not None:
             response_body += f"<p>{completion_string}</p>"
         if completion_codes != []:
-            response_body += "<p>Your completion codes (submit a set of six on Brightspace to complete homework 2 part B):</p><br>"
+            response_body += f"<p>Your completion codes (submit a set of {numToDoList[-1]} on Brightspace to complete homework {hwkNumList[-1]} part B):</p><br>"
             num = 1
             for code in completion_codes:
-                #adjust code from hex strings to base64 strings for display
-                code_bytes = bytes.fromhex(code)
-                #Already base 64 encoded, convert to ascii string to avoid ugly b'' formatting
-                b64 = code_bytes.decode('ascii')
-                response_body += f"{num}: {b64}<br>"
+                response_body += f"{num}: {formatCode(code)}<br>"
                 num += 1
             response_body += "<br>"
         response_body += "</body></html>"
@@ -74,9 +74,11 @@ class QuestionManager:
             logger.logger.error("Error decrypting fingerprint: %s", e)
             return "Error: Invalid completion code."
         parts = decrypted_fingerprint.split("[]")
-        if len(parts) != 3:
+        if len(parts) != 5:
             return "Error: Invalid completion code format."
-        ip, time, statement = parts
+        ip, time, statement, hwk, status = parts
+        if hwk != hwkNumList[-1]:
+            return "Error: Invalid completion code homework number."
         # Check if the fingerprint matches the current question
         # Note, the sha1 check is meant to detect attempts to swap out parts of the encrypted fingerprint
         # Checking the assigned problem text vs. the current problem text detects attempts to sub in one's own (easier) problem
@@ -94,7 +96,7 @@ class QuestionManager:
     def generate_completion_code(self, ip, time, statement):
         key = self.get_key()
         fernet = f.Fernet(key)
-        fingerprint = f"{ip}[]{time}[]{statement}[]Completed"
+        fingerprint = f"{ip}[]{time}[]{statement}[]{hwkNumList[-1]}[]Completed"
         fingerprint_bytes = fingerprint.encode()
         encrypted_fingerprint = fernet.encrypt(fingerprint_bytes)
         return encrypted_fingerprint.hex()
@@ -110,9 +112,11 @@ class QuestionManager:
             logger.logger.error("Error decrypting fingerprint: %s", e)
             return None
         parts = decrypted_fingerprint.split("[]")
-        if len(parts) != 4:
+        if len(parts) != 5:
             return None
-        ip, time, statement, sha1 = parts
+        ip, time, statement, hwk, status = parts
+        if hwk != hwkNumList[-1]:
+            return None
         return statement
     # Retrieve the encryption key
     #  Currently stored in a file.
@@ -128,17 +132,16 @@ class QuestionManager:
     def getNewQuestion(self, completion_codes):
         #type: (list[str]) -> statementInterface.LogicalStatementInterface
         # compile list of previous questions
-        #test an argument question
-        question = "P → Q, P ∴ Q"
-        st = statementSorter.parse(question)
-        st = st.rectifyGraph()
-        return st
         previous_questions = set()
         for code in completion_codes:
             question = self.decode_fingerprint(code)
             if question is not None:
                 previous_questions.add(question)
-        question = questionGenerator.HomeworkOne(list(previous_questions))
+        question = questionGenerator.HomeworkTwo(list(previous_questions))
+        st = statementSorter.parse(question)
+        st = st.rectifyGraph()
+        return st
+        question = "P → Q, P ∴ Q"
         st = statementSorter.parse(question)
         st = st.rectifyGraph()
         return st
@@ -165,7 +168,9 @@ class QuestionManager:
             HTML_out = HTML_out + f"<td>{questionStr[i]}</td>"
         HTML_out = HTML_out + "</tr></table>"
         HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/app' />"
-        HTML_out = HTML_out + "</form></body></html>"
+        HTML_out = HTML_out + "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out = HTML_out + "</body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
 
@@ -208,7 +213,9 @@ class QuestionManager:
                 HTML_out = HTML_out + f"<td><input type='checkbox' name='sub_{i}' /></td>"
         HTML_out = HTML_out + "</tr></table>"
         HTML_out = HTML_out + "<input type='submit' value='Submit' />"
-        HTML_out = HTML_out + "</form></body></html>"
+        HTML_out = HTML_out + "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out = HTML_out + "</body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
 
@@ -236,7 +243,9 @@ class QuestionManager:
             HTML_out = HTML_out + "</select></td></tr>"
         HTML_out = HTML_out + "</table>"
         HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/app' />"
-        HTML_out = HTML_out + "</form></body></html>"
+        HTML_out = HTML_out + "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out = HTML_out + "</body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
 
@@ -277,7 +286,9 @@ class QuestionManager:
             HTML_out = HTML_out + "</tr>"
         HTML_out = HTML_out + "</table>"
         HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/app' />"
-        HTML_out = HTML_out + "</form></body></html>"
+        HTML_out += "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out += "</body></html>"
 
         #return: No cookie, HTML body
         return [None], HTML_out
@@ -308,7 +319,9 @@ class QuestionManager:
         HTML_out += "</tr>"
         HTML_out += "</table>"
         HTML_out += "<input type='submit' value='Submit' formaction='/app' />"
-        HTML_out += "</form></body></html>"
+        HTML_out += "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out += "</body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
 
@@ -348,7 +361,9 @@ class QuestionManager:
         HTML_out += "<input type='radio' id='no' name='equiv' value='no'>"
         HTML_out += "<label for='no'>No</label><br>"
         HTML_out += "<input type='submit' value='Submit' formaction='/app' />"
-        HTML_out += "</form></body></html>"
+        HTML_out += "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out += "</body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
 
@@ -377,7 +392,9 @@ class QuestionManager:
         HTML_out += "</tr>"
         HTML_out += "</table>"
         HTML_out += "<input type='submit' value='Submit' formaction='/app' />"
-        HTML_out += "</form></body></html>"
+        HTML_out += "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out += "</body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
 
@@ -419,7 +436,9 @@ class QuestionManager:
                 HTML_out += "<td></td>"
         HTML_out += "</table>"
         HTML_out += "<input type='submit' value='Submit' formaction='/app' />"
-        HTML_out += "</form></body></html>"
+        HTML_out += "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out += "</body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
 
@@ -448,7 +467,9 @@ class QuestionManager:
         HTML_out += "</tr>"
         HTML_out += "</table>"
         HTML_out += "<input type='submit' value='Submit' formaction='/app' />"
-        HTML_out += "</form></body></html>"
+        HTML_out += "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out += "</body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
 
@@ -506,20 +527,44 @@ class QuestionManager:
         HTML_out += "<input type='radio' id='no' name='valid' value='no'>"
         HTML_out += "<label for='no'>No</label><br>"
         HTML_out += "<input type='submit' value='Submit' formaction='/app' />"
-        HTML_out += "</form></body></html>"
+        HTML_out += "</form>"
+        HTML_out += self.standardButtons()
+        HTML_out += "</body></html>"
         #return: No cookie, HTML body
         return [None], HTML_out
 
     def completeQuestionPage(self, origin_ip, st, fingerprint, headers_adapter):
         #type: (str, statementInterface.LogicalStatementInterface, str, dict) -> tuple[list[str|None], str]
         # Retrieve the list of previously-completed fingerprints from the cookie
-        fingerprint_list = self.retrieve_fingerprint_cookie(headers_adapter)
+        fingerprint_list = self.retrieve_fingerprint_cookie(headers_adapter, hwkNumList[-1])
         completion_string = self.checkFingerprint(st, fingerprint, fingerprint_list)  # Final check to aprove or deny completion (Note: mutates fingerprint_list)
         # The displayed page is actually the new question page.
         response_cookie, response_body = self.newQuestionPage(origin_ip, fingerprint_list, completion_string)
         response_cookie.append(self.bake_fingerprint_cookie(fingerprint_list))
         return response_cookie, response_body
     
+    #Display all codes from all homeworks completed so far
+    def displayAllCompletionCodesPage(self, headers_adapter):
+        response_cookie = []
+        response_body = "<html><body><h2>Your Completion Codes</h2>"
+        for hwk in range(len(hwkNumList)):
+            fingerprint_list = self.retrieve_fingerprint_cookie(headers_adapter, hwkNumList[hwk])
+            # Display the fingerprints for this homework
+            if fingerprint_list == []:
+                response_body += f"<p>No completion codes found for homework {hwkNumList[hwk]}.</p><br>"
+                continue
+            logger.logger.info("Fingerprints for homework %s: %s", hwkNumList[hwk], fingerprint_list)
+            response_body = response_body + f"<p>Completion codes for homework {hwkNumList[hwk]} (submit a set of {numToDoList[hwk]} on Brightspace to complete):</p><br>"
+            num = 1
+            for code in fingerprint_list:
+                response_body += f"{num}: {formatCode(code)}<br>"
+                num += 1
+            response_body += "<br>"
+        #Add a button to return to the main page
+        response_body += "<form method='GET' action='/app'><input type='submit' value='Return to current question' /></form>"
+        response_body += "</body></html>"
+        return [None], response_body
+
     def checkSplitStatementPage(self, form_data, st, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, str) -> tuple[list[str|None], str]
         questionData = st.printStringAndOwnership()
@@ -1039,16 +1084,16 @@ class QuestionManager:
         #type: (list[str]) -> str
         # Join the fingerprint list into a single string with colons for cookie safety
         fingerprint_str = ":".join(fingerprint_list)
-        return f"hmwk1_fingerprints={fingerprint_str}; Path=/"
+        return f"hmwk{hwkNumList[-1]}_fingerprints={fingerprint_str}; Path=/"
 
-    def retrieve_fingerprint_cookie(self, headers):
-        #type: (str) -> list[str]
+    def retrieve_fingerprint_cookie(self, headers, hwkNum):
+        #type: (str, str) -> list[str]
         cookie_header = headers.get('Cookie')
         fingerprint_list = []
         if cookie_header:
             cookies = cookie_header.split(';')
             for cookie in cookies:
-                if 'hmwk1_fingerprints=' in cookie:
+                if f'hmwk{hwkNum}_fingerprints=' in cookie:
                     fingerprint = cookie.split('=')[1].strip()
                     fingerprint = fingerprint.replace(':', ',')
                     fingerprint_list = fingerprint.split(',')
@@ -1073,6 +1118,15 @@ class QuestionManager:
         # Use the inverted dictionary to create a new dictionary with normalized indices as values
         sub_indices = {inverted_dict[i]: sub for i, sub in sub_indices.items()}
         return sub_indices
+    
+    def standardButtons(self):
+        #type: () -> str
+        # Add a button to get all completion codes, with the form_name set to get_codes
+        HTML_out = "<form method='GET' action='/app'>"
+        HTML_out += "<input type='hidden' name='form_name' value='get_codes' />"
+        HTML_out += "<input type='submit' value='Get Completion Codes' /></form>"
+        # Future note: Add a button to change homework number
+        return HTML_out
 
 
 def evaluateTruthTable(df, statement, statements):
@@ -1167,3 +1221,9 @@ def printTruthTableToTD(df):
         HTML_out = HTML_out + "</tr>"
     return HTML_out
 
+def formatCode(code):
+    #adjust code from hex strings to base64 strings for display
+    code_bytes = bytes.fromhex(code)
+    #Already base 64 encoded, convert to ascii string to avoid ugly b'' formatting
+    b64 = code_bytes.decode('ascii')
+    return b64

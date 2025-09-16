@@ -155,3 +155,12 @@ def HomeworkOne(previousQuestions):
         return random.choice(tbd_three)
     #Further practice (allows repeats)
     return random.choice(question_set_one + question_set_two + question_set_three)
+
+def HomeworkTwo(previousQuestions):
+    question = makeRandomQuestion(["and", "or", "implies", "iff", "xor"], 3, 2)
+    if len(previousQuestions) >= 2:
+        #Allow repeats after two questions. The homework will be to answer 2 questions.
+        return question
+    while question in previousQuestions:
+        question = makeRandomQuestion(["and", "or", "implies", "iff", "xor"], 3, 2)
+    return question

@@ -117,6 +117,8 @@ def application(environ, start_response):
         response_cookie, response_body = coreLogic.checkIdentifyArgumentConclusionColumnPage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
     elif page == 'argument_validity_check':
         response_cookie, response_body = coreLogic.checkArgumentValidityPage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
+    elif page == 'get_codes':
+        response_cookie, response_body = coreLogic.displayAllCompletionCodesPage(headers_adapter)
     # Route to current question step pages based on status
     elif not split:
         response_cookie, response_body = coreLogic.splitStatementPage(st)
