@@ -1,3 +1,10 @@
+import os
+import sys
+
+HERE = os.path.dirname(__file__)          # /home/username/public_html
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
 import statementParser
 import random
 
