@@ -164,3 +164,9 @@ def HomeworkTwo(previousQuestions):
     while question in previousQuestions:
         question = makeRandomQuestion(["and", "or", "implies", "iff", "xor"], 3, 2)
     return question
+
+def HomeworkOneandTwoReview(previousQuestions):
+    if random.random() < 0.8:
+        return HomeworkOne(previousQuestions)
+    else:
+        return HomeworkTwo(previousQuestions)
