@@ -11,8 +11,8 @@ import hashlib
 import logger
 import urllib.parse
 
-hwkNumList = ["2", "3", "4"]  # Add to this for each homework assignment to prevent reuse of old completion codes
-numToDoList = [6, 2, 0]  # Number of questions to complete for each homework assignment
+hwkNumList = ["2", "3", "4", "5"]  # Add to this for each homework assignment to prevent reuse of old completion codes
+numToDoList = [6, 2, 0, 4]  # Number of questions to complete for each homework assignment
 
 class QuestionManager:
     def newQuestionPage(self, origin_ip, completion_codes = [], completion_string=None):
@@ -137,7 +137,7 @@ class QuestionManager:
             question = self.decode_fingerprint(code)
             if question is not None:
                 previous_questions.add(question)
-        question = questionGenerator.HomeworkOneandTwoReview(list(previous_questions))
+        question = questionGenerator.HomeworkThree(list(previous_questions))
         st = statementSorter.parse(question)
         st = st.rectifyGraph()
         return st

@@ -33,6 +33,8 @@ class Argument(statementInterface.LogicalStatementInterface):
                 break
         if not premises_parts:
             raise ValueError("Argument must contain at least one premise.")
+        if premises_parts[-1] == '':
+            premises_parts = premises_parts[:-1]
         for premise_text in premises_parts:
             self.premises.append(statementParser.Statement(premise_text))
         

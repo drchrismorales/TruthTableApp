@@ -165,6 +165,51 @@ def HomeworkTwo(previousQuestions):
         question = makeRandomQuestion(["and", "or", "implies", "iff", "xor"], 3, 2)
     return question
 
+def HomeworkThree(previousQuestions):
+    questionListOne = [
+        "P → Q; P; ∴ Q",
+        "P ∨ Q; ¬P; ∴ Q",
+        "P ∧ Q; ∴ P",
+        "P ∧ Q; ∴ Q",
+        "P ↔ Q; P; ∴ Q",
+        "P ↔ Q; ¬Q; ∴ ¬P",
+        "P ⊕ Q; P; ∴ ¬Q",
+        "P ∧ Q; ∴ P ∨ Q",
+        "¬(P ∨ Q); ∴ ¬P ∨ ¬Q",
+        #errors
+        "P → Q; Q; ∴ P",
+        "P ∨ Q; P; ∴ Q",
+        "P ∨ Q; Q; ∴ P",
+    ]
+    questionListTwo = [
+        "P ∨ Q; P → R; Q → R; ∴ R",
+        "P ∨ Q; P → R; Q → S; ∴ (R ∨ S)",
+        "P → Q; Q → R; ∴ P → R",
+        "P ∧ Q → R; P; ∴ Q → R",
+        "P ∨ Q → R; ¬P; ∴ Q → R",
+        "P ↔ Q; Q ↔ R; ∴ P ↔ R",
+        #errors
+        "P ∨ Q; P → R; ∴ Q → R",
+        "P → Q; R → Q; ∴ P → R",
+    ]
+    prev_counts = [0, 0]
+    tbd_one = questionListOne.copy()
+    tbd_two = questionListTwo.copy()
+    for q in previousQuestions:
+        print(q)
+        if q in questionListOne:
+            prev_counts[0] += 1
+            tbd_one.remove(q)
+        elif q in questionListTwo:
+            prev_counts[1] += 1
+            tbd_two.remove(q)
+    if prev_counts[0] < 2:
+        return random.choice(tbd_one)
+    elif prev_counts[1] < 2:
+        return random.choice(tbd_two)
+    #Further practice (allows repeats)
+    return random.choice(questionListOne + questionListTwo)
+
 def HomeworkOneandTwoReview(previousQuestions):
     if random.random() < 0.8:
         return HomeworkOne(previousQuestions)
