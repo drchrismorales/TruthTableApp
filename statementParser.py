@@ -46,7 +46,24 @@ class Statement(statementInterface.LogicalStatementInterface):
         stack = []
         openParens = 0
         droppedLeadingParens = 0
-        #print("Parsing:", text, "at depth")
+        #print("Parsing:'", text, "'at depth", sep="")
+        #Pre-processing: assure that the whole statement is not wrapped in parentheses
+        if text[0] == '(' and text[-1] == ')':
+            parenBalance = 0
+            isWrapped = True
+            while isWrapped:
+                for i in range(len(text)):
+                    char = text[i]
+                    if char == '(':
+                        parenBalance += 1
+                    elif char == ')':
+                        parenBalance -= 1
+                    if parenBalance == 0 and i < len(text) - 1:
+                        isWrapped = False
+                        break
+                if isWrapped:
+                    text = text[1:-1]
+            self.text = text
         for i in range(len(text)):
             char = text[i]
             # Regular character
