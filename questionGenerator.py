@@ -183,7 +183,7 @@ def HomeworkThree(previousQuestions):
     ]
     questionListTwo = [
         "P ∨ Q; P → R; Q → R; ∴ R",
-        "P ∨ Q; P → R; Q → S; ∴ (R ∨ S)",
+        "P ∨ Q; P → R; Q → S; ∴ R ∨ S",
         "P → Q; Q → R; ∴ P → R",
         "P ∧ Q → R; P; ∴ Q → R",
         "P ∨ Q → R; ¬P; ∴ Q → R",
