@@ -10,23 +10,45 @@ import base64
 import hashlib
 import logger
 import urllib.parse
+import settings
 
-hwkNumList = ["2", "3", "4", "5"]  # Add to this for each homework assignment to prevent reuse of old completion codes
-numToDoList = [6, 2, 0, 4]  # Number of questions to complete for each homework assignment
+#hwkNumList = ["2", "3", "4", "5"]  # Add to this for each homework assignment to prevent reuse of old completion codes
+#numToDoList = [6, 2, 0, 4]  # Number of questions to complete for each homework assignment
+class HomeworkSet:
+    def __init__(self, number, toDo, generator):
+        self.number = number
+        self.toDo = toDo
+        self.generator = generator
+
+HOMEWORK_SETS = [
+    HomeworkSet("1b", questionGenerator.TruthTableQuestions_COMPLETION_COUNT, questionGenerator.TruthTableQuestions),
+    HomeworkSet("2", questionGenerator.EquivalenceQuestions_COMPLETION_COUNT, questionGenerator.EquivalenceQuestions),
+    HomeworkSet("3", 2, questionGenerator.HomeworkTwo),
+    HomeworkSet("4", 0, questionGenerator.HomeworkOneandTwoReview),
+    HomeworkSet("5", 4, questionGenerator.HomeworkThree)
+]
+
+def activeHomework():
+    hwkset = settings.activeHomeworkID()
+    if hwkset is not None:
+        for hwk in HOMEWORK_SETS:
+            if hwk.number == hwkset:
+                return hwk
+    return HOMEWORK_SETS[0]  # Default to the first homework set if not specified or not found
 
 class QuestionManager:
     def newQuestionPage(self, origin_ip, completion_codes = [], completion_string=None):
         #type: (str, list[str], str) -> tuple[list[str|None], str]
         st = self.getNewQuestion(completion_codes)
+        activehwk = activeHomework()
         # Create a unique fingerprint for the question instance to allow detection of cookie tampering
         #  Note: We're not going to try to obscure what information is preserved in the cookie, nor totally prevent tampering,
         #  as it's all in good fun. But we do want to be able to detect if problems are substituted, or if two students submit the same completion token.
         # Finger print will be time the question was generated, the IP address of the requester, and the text of the statement, encrypted with a symmetric key
         time = str(pd.Timestamp.now().value) # Get current time as integer nanoseconds since epoch, convert to string
-        fingerprint = f"{origin_ip}[]{time}[]{st.prettyPrint()}[]{hwkNumList[-1]}[]Started"
+        fingerprint = f"{origin_ip}[]{time}[]{st.prettyPrint()}[]{activehwk.number}[]Started"
         # Retrieve encryption key from file
-        key = self.get_key()
-        fernet = f.Fernet(key)
+        fernet = self.get_key()
         encrypted_fingerprint = fernet.encrypt(fingerprint.encode())
         fingerprint_hex = encrypted_fingerprint.hex()
 
@@ -46,7 +68,7 @@ class QuestionManager:
         if completion_string is not None:
             response_body += f"<p>{completion_string}</p>"
         if completion_codes != []:
-            response_body += f"<p>Your completion codes (submit a set of {numToDoList[-1]} on Brightspace to complete homework {hwkNumList[-1]} part B):</p><br>"
+            response_body += f"<p>Your completion codes (submit a set of {activehwk.toDo} on Brightspace to complete homework {activehwk.number} part B):</p><br>"
             num = 1
             for code in completion_codes:
                 response_body += f"{num}: {formatCode(code)}<br>"
@@ -65,8 +87,8 @@ class QuestionManager:
     # Note that this DOES NOT check that the student completed all steps of the question, rather than manipulating the cookie to skip to the end.
     #  There are computer security students in the class, they can have their fun.
     def checkFingerprint(self, st, fingerprint_hex, fingerprint_list):
-        key = self.get_key()
-        fernet = f.Fernet(key)
+        fernet = self.get_key()
+        activehwk = activeHomework()
         try:
             fingerprint_bytes = bytes.fromhex(fingerprint_hex)
             decrypted_fingerprint = fernet.decrypt(fingerprint_bytes).decode()
@@ -77,7 +99,7 @@ class QuestionManager:
         if len(parts) != 5:
             return "Error: Invalid completion code format."
         ip, time, statement, hwk, status = parts
-        if hwk != hwkNumList[-1]:
+        if hwk != activehwk.number:
             return "Error: Invalid completion code homework number."
         # Check if the fingerprint matches the current question
         # Note, the sha1 check is meant to detect attempts to swap out parts of the encrypted fingerprint
@@ -94,17 +116,17 @@ class QuestionManager:
         return "Error: Invalid completion code."
     # Generate a completion code from the fingerprint parts
     def generate_completion_code(self, ip, time, statement):
-        key = self.get_key()
-        fernet = f.Fernet(key)
-        fingerprint = f"{ip}[]{time}[]{statement}[]{hwkNumList[-1]}[]Completed"
+        fernet = self.get_key()
+        activehwk = activeHomework()
+        fingerprint = f"{ip}[]{time}[]{statement}[]{activehwk.number}[]Completed"
         fingerprint_bytes = fingerprint.encode()
         encrypted_fingerprint = fernet.encrypt(fingerprint_bytes)
         return encrypted_fingerprint.hex()
 
     # Decode a fingerprint hex string to statement text (for checking duplicates)
     def decode_fingerprint(self, fingerprint_hex):
-        key = self.get_key()
-        fernet = f.Fernet(key)
+        fernet = self.get_key()
+        activehwk = activeHomework()
         try:
             fingerprint_bytes = bytes.fromhex(fingerprint_hex)
             decrypted_fingerprint = fernet.decrypt(fingerprint_bytes).decode()
@@ -115,7 +137,7 @@ class QuestionManager:
         if len(parts) != 5:
             return None
         ip, time, statement, hwk, status = parts
-        if hwk != hwkNumList[-1]:
+        if hwk != activehwk.number:
             return None
         return statement
     # Retrieve the encryption key
@@ -124,28 +146,22 @@ class QuestionManager:
     def get_key(self):
         #type: () -> bytes
         # Test: return a fixed key instead of the stored one
-        return base64.urlsafe_b64encode(hashlib.sha256(b"test_key_please_change").digest())
-        with open("secret.key", "rb") as key_file:
-            key = key_file.read()
-        return key
+        keyefile = open("key.txt","r")
+        keystr = keyefile.read()
+        keyefile.close()
+        key = base64.urlsafe_b64encode(hashlib.sha256(keystr.encode()).digest())
+        return f.Fernet(key)
 
     def getNewQuestion(self, completion_codes):
         #type: (list[str]) -> statementInterface.LogicalStatementInterface
         # compile list of previous questions
         previous_questions = set()
+        activehwk = activeHomework()
         for code in completion_codes:
             question = self.decode_fingerprint(code)
             if question is not None:
                 previous_questions.add(question)
-        question = questionGenerator.HomeworkThree(list(previous_questions))
-        st = statementSorter.parse(question)
-        st = st.rectifyGraph()
-        return st
-        question = "P → Q, P ∴ Q"
-        st = statementSorter.parse(question)
-        st = st.rectifyGraph()
-        return st
-        question = questionGenerator.makeRandomQuestion(["and", "or", "not", "xor","implies","iff"], 2, 2)
+        question = activehwk.generator(list(previous_questions))
         st = statementSorter.parse(question)
         st = st.rectifyGraph()
         return st
@@ -1089,8 +1105,9 @@ class QuestionManager:
     def bake_fingerprint_cookie(self, fingerprint_list):
         #type: (list[str]) -> str
         # Join the fingerprint list into a single string with colons for cookie safety
+        activehwk = activeHomework()
         fingerprint_str = ":".join(fingerprint_list)
-        return f"hmwk{hwkNumList[-1]}_fingerprints={fingerprint_str}; Path=/"
+        return f"hmwk{activehwk.number}_fingerprints={fingerprint_str}; Path=/"
 
     def retrieve_fingerprint_cookie(self, headers, hwkNum):
         #type: (str, str) -> list[str]

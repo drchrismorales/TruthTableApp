@@ -88,7 +88,8 @@ def makeRandomSubstatement(current_list, connective_list, simple_set, max_simple
             return statementParser.Statement(substatement_text)
     raise ValueError("Should not reach here")
 
-def HomeworkOne(previousQuestions):
+TruthTableQuestions_COMPLETION_COUNT = 4
+def TruthTableQuestions(previousQuestions):
     question_set_one = [
         "P ∧ Q",
         "P ∨ Q",
@@ -108,6 +109,25 @@ def HomeworkOne(previousQuestions):
     for template in question_set_two_template:
         for symbol in logic_symbols:
             question_set_two.append(template.replace("∧", symbol))
+    prev_counts = [0, 0]
+    tbd_one = question_set_one.copy()
+    tbd_two = question_set_two.copy()
+    for q in previousQuestions:
+        if q in question_set_one:
+            prev_counts[0] += 1
+            tbd_one.remove(q)
+        elif q in question_set_two:
+            prev_counts[1] += 1
+            tbd_two.remove(q)
+    if prev_counts[0] < TruthTableQuestions_COMPLETION_COUNT/2:
+        return random.choice(tbd_one)
+    elif prev_counts[1] < TruthTableQuestions_COMPLETION_COUNT/2:
+        return random.choice(tbd_two)
+    #Further practice (allows repeats)
+    return random.choice(question_set_one + question_set_two)
+
+EquivalenceQuestions_COMPLETION_COUNT = 2
+def EquivalenceQuestions(previousQuestions):
     # Add some hard-coded equivalence questions
     question_set_three = [
         #Correct equivalences
@@ -133,28 +153,16 @@ def HomeworkOne(previousQuestions):
         "¬(P ↔ Q) ≡ P ↔ Q",
         "¬(P ⊕ Q) ≡ P ⊕ Q",
     ]
-    prev_counts = [0, 0, 0]
-    tbd_one = question_set_one.copy()
-    tbd_two = question_set_two.copy()
+    prev_counts = [0]
     tbd_three = question_set_three.copy()
     for q in previousQuestions:
-        if q in question_set_one:
+        if q in question_set_three:
             prev_counts[0] += 1
-            tbd_one.remove(q)
-        elif q in question_set_two:
-            prev_counts[1] += 1
-            tbd_two.remove(q)
-        elif q in question_set_three:
-            prev_counts[2] += 1
             tbd_three.remove(q)
-    if prev_counts[0] < 2:
-        return random.choice(tbd_one)
-    elif prev_counts[1] < 2:
-        return random.choice(tbd_two)
-    elif prev_counts[2] < 2:
+    if prev_counts[0] < EquivalenceQuestions_COMPLETION_COUNT:
         return random.choice(tbd_three)
     #Further practice (allows repeats)
-    return random.choice(question_set_one + question_set_two + question_set_three)
+    return random.choice(question_set_three)
 
 def HomeworkTwo(previousQuestions):
     question = makeRandomQuestion(["and", "or", "implies", "iff", "xor"], 3, 2)
@@ -212,6 +220,9 @@ def HomeworkThree(previousQuestions):
 
 def HomeworkOneandTwoReview(previousQuestions):
     if random.random() < 0.8:
-        return HomeworkOne(previousQuestions)
+        if random.random() < 0.6:
+            return TruthTableQuestions(previousQuestions)
+        else:
+            return EquivalenceQuestions(previousQuestions)
     else:
         return HomeworkTwo(previousQuestions)
