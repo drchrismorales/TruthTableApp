@@ -37,6 +37,37 @@ def activeHomework():
     return HOMEWORK_SETS[0]  # Default to the first homework set if not specified or not found
 
 class QuestionManager:
+    # Single place that assembles a full HTML document. Every response method builds an inner
+    # body_html fragment and passes it here, so the doctype/head/body skeleton exists only once.
+    def _renderPage(self, title, body_html):
+        #type: (str, str) -> str
+        return (
+            f"<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>{title}</title></head>"
+            f"<body>{body_html}</body></html>"
+        )
+
+    # Shared "Correct!" / "Incorrect. Try again." result page used by every check*Page method.
+    def _renderResult(self, correct, title=None, heading=None, button_label=None):
+        #type: (bool, str|None, str|None, str|None) -> str
+        if correct:
+            title = title or "Correct"
+            heading = heading or "Correct!"
+            button_label = button_label or "Continue"
+        else:
+            title = title or "Incorrect"
+            heading = heading or "Incorrect. Try again."
+            button_label = button_label or "Try again"
+        body = f"<h1>{heading}</h1>"
+        body += f"<form method='GET' action='/app'><input type='submit' value='{button_label}' aria-label='{button_label}' /></form>"
+        return self._renderPage(title, body)
+
+    # Shared error page. Always offers a way back to the app instead of leaving the student stuck.
+    def _renderError(self, msg):
+        #type: (str) -> str
+        body = f"<h1>Error: {msg}</h1>"
+        body += "<form method='GET' action='/app'><input type='submit' value='Return to app' aria-label='Return to app' /></form>"
+        return self._renderPage("Error", body)
+
     def newQuestionPage(self, origin_ip, completion_codes = [], completion_string=None):
         #type: (str, list[str], str) -> tuple[list[str|None], str]
         st = self.getNewQuestion(completion_codes)
@@ -54,10 +85,7 @@ class QuestionManager:
 
         response_cookie = self.bake_cookie(st, False, 0, [], [], 0, fingerprint_hex)
         # Announce new question to student in body
-        response_body = (
-            "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>New Question</title></head>"
-            f"<body><h1>New Question</h1><h2>New question generated: {st.prettyPrint()}</h2>"
-        )
+        response_body = f"<h1>New Question</h1><h2>New question generated: {st.prettyPrint()}</h2>"
         # Add a "start working" button that will begin the first step
         response_body += (
             "<form method='GET' action='/app'>"
@@ -74,8 +102,7 @@ class QuestionManager:
                 response_body += f"{num}: {formatCode(code)}<br>"
                 num += 1
             response_body += "<br>"
-        response_body += "</body></html>"
-        return [response_cookie], response_body
+        return [response_cookie], self._renderPage("New Question", response_body)
 
     # Checks the provided fingerprint against the current question.
     #  Will approve or deny completion based on whether the fingerprint matches the current question,
@@ -171,8 +198,7 @@ class QuestionManager:
         questionData = st.printStringAndOwnership()
         questionStr = questionData[0]
         # Ask the student to identify all logical operators in the statement
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Split Statement for {questionStr}</title></head><body>"
-        HTML_out = HTML_out + f"<h1>Split Statement</h1>"
+        HTML_out = f"<h1>Split Statement</h1>"
         HTML_out = HTML_out + f"<h2>Identify the logical operators in the statement: </h2>"
         # Output a table where each column contains a checkbox above one character of the statement
         HTML_out = HTML_out + "<form method='GET' action='/app'>"
@@ -187,9 +213,8 @@ class QuestionManager:
         HTML_out = HTML_out + "<input type='submit' value='Submit' aria-label='Submit' formaction='/app' />"
         HTML_out = HTML_out + "</form>"
         HTML_out += self.standardButtons()
-        HTML_out = HTML_out + "</body></html>"
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage(f"Split Statement for {questionStr}", HTML_out)
 
     #Asks the current "Identify all symbols in the current substatemtent question"
     #Assumes that all operators that occur in the statement before nIDed have been identified,
@@ -203,14 +228,13 @@ class QuestionManager:
         operator_indices = [i for i, is_op in enumerate(operators) if is_op]
         if nIDed >= len(operator_indices):
             # Should be impossible, we don't route here if nIDed is >= number of operators
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: No more operators to identify.</h1></body></html>"
+            return [None], self._renderError("No more operators to identify.")
         current_op_index = operator_indices[nIDed]
         # Print out a three-row table:
         # Row 1: Largly empty, with an arrow symbol (↓) above the current operator
         # Row 2: The characters of the statement, one per cell
         # Row 3: Checkboxes, one per character, to identify which are part of the current operator (With no checkbox below the current operator)
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Which symbols belong to the substatement(s) of the indicated operator?</title></head><body>"
-        HTML_out = HTML_out + f"<h1>Identify Substatements</h1><h2>Which symbols belong to the substatement(s) of the indicated operator?</h2>"
+        HTML_out = f"<h1>Identify Substatements</h1><h2>Which symbols belong to the substatement(s) of the indicated operator?</h2>"
         HTML_out = HTML_out + "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='identify_substatements_check' />"
         HTML_out = HTML_out + "<table border='1'>"
@@ -236,9 +260,8 @@ class QuestionManager:
         HTML_out = HTML_out + "<input type='submit' value='Submit' aria-label='Submit' />"
         HTML_out = HTML_out + "</form>"
         HTML_out += self.standardButtons()
-        HTML_out = HTML_out + "</body></html>"
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage("Which symbols belong to the substatement(s) of the indicated operator?", HTML_out)
 
     def orderSubstatementsPage(self, st):
         #type: (statementInterface.LogicalStatementInterface) -> tuple[list[str|None], str]
@@ -246,8 +269,7 @@ class QuestionManager:
         ownership = st.printStringAndOwnership()[1]
         n_substatements = len(substatements)
         # Ask the students to pick a valid ordering of the substatements for their truth table
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Order Substatements</title></head><body>"
-        HTML_out = HTML_out + f"<h1>Order Substatements</h1><h2>Decide what order you'd like to evaluate the statements in:</h2>"
+        HTML_out = f"<h1>Order Substatements</h1><h2>Decide what order you'd like to evaluate the statements in:</h2>"
 
         sub_indices = self.interfaceOrder(substatements, ownership)
 
@@ -266,9 +288,8 @@ class QuestionManager:
         HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/app' aria-label='Submit' />"
         HTML_out = HTML_out + "</form>"
         HTML_out += self.standardButtons()
-        HTML_out = HTML_out + "</body></html>"
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage("Order Substatements", HTML_out)
 
     def truthTablePage(self, st, ordering):
         #type: (statementInterface.LogicalStatementInterface, list[int]) -> tuple[list[str|None], str]
@@ -284,10 +305,9 @@ class QuestionManager:
             if len(ordering) == len(statements):
                 statements = [statements[i] for i in ordering]
             else:
-                return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Ordering length does not match number of statements.</h1></body></html>"
+                return [None], self._renderError("Ordering length does not match number of statements.")
         # Print out a truth table with dropdowns for each cell
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Truth Table</title></head><body>"
-        HTML_out = HTML_out + f"<h1>Truth Table</h1><h2>Fill in the Truth Table for {question}</h2>"
+        HTML_out = f"<h1>Truth Table</h1><h2>Fill in the Truth Table for {question}</h2>"
         HTML_out = HTML_out + f"<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='truth_table_check' />"
         # Print the statement headers
@@ -309,10 +329,9 @@ class QuestionManager:
         HTML_out = HTML_out + "<input type='submit' value='Submit' formaction='/app' aria-label='Submit' />"
         HTML_out += "</form>"
         HTML_out += self.standardButtons()
-        HTML_out += "</body></html>"
 
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage("Truth Table", HTML_out)
     def identifyColumnsPage(self, st, ordering, tt_row_ordering):
         #type: (statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[list[str|None], str]
         question = st.prettyPrint()
@@ -323,10 +342,9 @@ class QuestionManager:
         # Use the helper to recreate the truth table
         df = recreateTruthTable(st, ordering, tt_row_ordering)
         if df is None:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Could not recreate truth table.</h1></body></html>"
+            return [None], self._renderError("Could not recreate truth table.")
         # Print out the truth table with the correct answers filled in, and checkboxes below each column
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Identify Columns</title></head><body>"
-        HTML_out += f"<h1>Identify Columns</h1><h2>Identify the columns that are needed to answer the question: {question}</h2>"
+        HTML_out = f"<h1>Identify Columns</h1><h2>Identify the columns that are needed to answer the question: {question}</h2>"
         HTML_out += "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='identify_columns_check' />"
         #Begin the table
@@ -342,22 +360,20 @@ class QuestionManager:
         HTML_out += "<input type='submit' value='Submit' formaction='/app' aria-label='Submit' />"
         HTML_out += "</form>"
         HTML_out += self.standardButtons()
-        HTML_out += "</body></html>"
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage("Identify Columns", HTML_out)
 
     def equivalentQuestionPage(self, st, ordering, tt_row_ordering):
         #type: (statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[list[str|None], str]
         # Recreate the truth table
         if not isinstance(st, equivalence.Equivalence):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Not an equivalence question.</h1></body></html>"
+            return [None], self._renderError("Not an equivalence question.")
         df = recreateTruthTable(st, ordering, tt_row_ordering)
         if df is None:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Could not recreate truth table.</h1></body></html>"
+            return [None], self._renderError("Could not recreate truth table.")
         question = st.prettyPrint()
         # Ask the student if the two statements are equivalent, printing the truth table with up-arrows under the columns that are needed to answer the question
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Are the two statements equivalent?</title></head><body>"
-        HTML_out += f"<h1>Are the two statements equivalent?</h1><h2>{question}</h2>"
+        HTML_out = f"<h1>Are the two statements equivalent?</h1><h2>{question}</h2>"
         HTML_out += "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='equivalence_check' />"
         #Begin the table
@@ -384,22 +400,20 @@ class QuestionManager:
         HTML_out += "<input type='submit' value='Submit' formaction='/app' aria-label='Submit' />"
         HTML_out += "</form>"
         HTML_out += self.standardButtons()
-        HTML_out += "</body></html>"
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage("Are the two statements equivalent?", HTML_out)
 
     def identifyArgumentPremiseColumnsPage(self, st, ordering, tt_row_ordering):
         #type: (statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[list[str|None], str]
         # Recreate the truth table
         if not isinstance(st, argument.Argument):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Not an argument question.</h1></body></html>"
+            return [None], self._renderError("Not an argument question.")
         df = recreateTruthTable(st, ordering, tt_row_ordering)
         if df is None:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Could not recreate truth table.</h1></body></html>"
+            return [None], self._renderError("Could not recreate truth table.")
         question = st.prettyPrint()
         # Ask the student which columns are needed to determine if the argument is valid, printing the truth table with a row of checkboxes below
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Identify Premise Columns</title></head><body>"
-        HTML_out += f"<h1>Identify Premise Columns</h1><h2>Which columns contain the premises of the argument? {question}</h2>"
+        HTML_out = f"<h1>Identify Premise Columns</h1><h2>Which columns contain the premises of the argument? {question}</h2>"
         HTML_out += "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='identify_argument_columns_check' />"
         #Begin the table
@@ -415,22 +429,20 @@ class QuestionManager:
         HTML_out += "<input type='submit' value='Submit' formaction='/app' aria-label='Submit' />"
         HTML_out += "</form>"
         HTML_out += self.standardButtons()
-        HTML_out += "</body></html>"
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage("Identify Premise Columns", HTML_out)
 
     def identifyArgumentRowsPage(self, st, ordering, tt_row_ordering):
         #type: (statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[list[str|None], str]
         # Recreate the truth table
         if not isinstance(st, argument.Argument):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Not an argument question.</h1></body></html>"
+            return [None], self._renderError("Not an argument question.")
         df = recreateTruthTable(st, ordering, tt_row_ordering)
         if df is None:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Could not recreate truth table.</h1></body></html>"
+            return [None], self._renderError("Could not recreate truth table.")
         question = st.prettyPrint()
         # Ask the student which rows are needed to determine if the argument is valid, printing the truth table with a column of checkboxes to the left
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Identify Premise Rows</title></head><body>"
-        HTML_out += f"<h1>Identify Premise Rows</h1><h2>Which rows are needed to determine if the argument is valid? {question}</h2>"
+        HTML_out = f"<h1>Identify Premise Rows</h1><h2>Which rows are needed to determine if the argument is valid? {question}</h2>"
         HTML_out += "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='identify_argument_rows_check' />"
         #Begin the table
@@ -459,22 +471,20 @@ class QuestionManager:
         HTML_out += "<input type='submit' value='Submit' formaction='/app' aria-label='Submit' />"
         HTML_out += "</form>"
         HTML_out += self.standardButtons()
-        HTML_out += "</body></html>"
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage("Identify Premise Rows", HTML_out)
 
     def identifyArgumentConclusionColumnPage(self, st, ordering, tt_row_ordering):
         #type: (statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[list[str|None], str]
         # Recreate the truth table
         if not isinstance(st, argument.Argument):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Not an argument question.</h1></body></html>"
+            return [None], self._renderError("Not an argument question.")
         df = recreateTruthTable(st, ordering, tt_row_ordering)
         if df is None:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Could not recreate truth table.</h1></body></html>"
+            return [None], self._renderError("Could not recreate truth table.")
         question = st.prettyPrint()
         # Ask the student which columns are needed to determine if the argument is valid, printing the truth table with a row of checkboxes below
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Identify Conclusion Column</title></head><body>"
-        HTML_out += f"<h1>Identify Conclusion Column</h1><h2>Which column contains the conclusion of the argument? {question}</h2>"
+        HTML_out = f"<h1>Identify Conclusion Column</h1><h2>Which column contains the conclusion of the argument? {question}</h2>"
         HTML_out += "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='identify_argument_conclusion_check' />"
         #Begin the table
@@ -490,23 +500,21 @@ class QuestionManager:
         HTML_out += "<input type='submit' value='Submit' formaction='/app' aria-label='Submit' />"
         HTML_out += "</form>"
         HTML_out += self.standardButtons()
-        HTML_out += "</body></html>"
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage("Identify Conclusion Column", HTML_out)
 
     def argumentQuestionPage(self, st, ordering, tt_row_ordering):
         #type: (statementInterface.LogicalStatementInterface, list[int], list[int]) -> tuple[list[str|None], str]
         # Recreate the truth table
         if not isinstance(st, argument.Argument):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Not an argument question.</h1></body></html>"
+            return [None], self._renderError("Not an argument question.")
         df = recreateTruthTable(st, ordering, tt_row_ordering)
         if df is None:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Could not recreate truth table.</h1></body></html>"
+            return [None], self._renderError("Could not recreate truth table.")
         question = st.prettyPrint()
         # Ask the student if the argument is valid, printing the truth table with up-arrows under the premise columns
         #  and right-arrows to the left of the rows needed
-        HTML_out = f"<!DOCTYPE html><html  lang='en'><head><meta charset='UTF-8'><title>Is the argument valid?</title></head><body>"
-        HTML_out += f"<h1>Is the argument valid?</h1><h2>{question}</h2>"
+        HTML_out = f"<h1>Is the argument valid?</h1><h2>{question}</h2>"
         HTML_out += "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='argument_validity_check' />"
         #Begin the table
@@ -550,9 +558,8 @@ class QuestionManager:
         HTML_out += "<input type='submit' value='Submit' formaction='/app' aria-label='Submit' />"
         HTML_out += "</form>"
         HTML_out += self.standardButtons()
-        HTML_out += "</body></html>"
         #return: No cookie, HTML body
-        return [None], HTML_out
+        return [None], self._renderPage("Is the argument valid?", HTML_out)
 
     def completeQuestionPage(self, origin_ip, st, fingerprint, headers_adapter):
         #type: (str, statementInterface.LogicalStatementInterface, str, dict) -> tuple[list[str|None], str]
@@ -568,7 +575,7 @@ class QuestionManager:
     #Display all codes from all homeworks completed so far
     def displayAllCompletionCodesPage(self, headers_adapter):
         response_cookie = []
-        response_body = "<html  lang='en'><head><meta charset='UTF-8'><title>Your Completion Codes</title></head><body><h1>Your Completion Codes</h1>"
+        response_body = "<h1>Your Completion Codes</h1>"
         for hwk in range(len(HOMEWORK_SETS)):
             fingerprint_list = self.retrieve_fingerprint_cookie(headers_adapter, HOMEWORK_SETS[hwk].number)
             # Display the fingerprints for this homework
@@ -584,8 +591,7 @@ class QuestionManager:
             response_body += "<br>"
         #Add a button to return to the main page
         response_body += "<form method='GET' action='/app'><input type='submit' value='Return to current question' aria-label='Return to current question' /></form>"
-        response_body += "</body></html>"
-        return [None], response_body
+        return [None], self._renderPage("Your Completion Codes", response_body)
 
     def checkSplitStatementPage(self, form_data, st, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, str) -> tuple[list[str|None], str]
@@ -593,7 +599,7 @@ class QuestionManager:
         operators = questionData[2]
         response_cookie = None
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
         # Check which checkboxes were ticked
         selected = [False] * len(operators)
         for key in form_data.keys():
@@ -609,18 +615,11 @@ class QuestionManager:
         logger.logger.info("Selected: %s", selected)
         logger.logger.info("Answer key: %s", operators)
         correct = (selected == operators)
-        HTML_response = ""
         if correct:
             # Update the cookie to mark the statement as split
             cookie_question = cookieEncode(st.prettyPrint())
             response_cookie = self.bake_cookie(st, True, 0, [], [], 0, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' aria-label='Continue' /></form>"
-        else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+        HTML_response = self._renderResult(correct)
         return [response_cookie], HTML_response
 
     def checkIdentifySubstatementsPage(self, form_data, st, nIDed, fingerprint):
@@ -634,10 +633,10 @@ class QuestionManager:
         operator_indices = [i for i, is_op in enumerate(operators) if is_op]
         if nIDed >= len(operator_indices):
             # Should be impossible, we don't route here if nIDed is >= number of operators
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: No more operators to identify.</h1></body></html>"
+            return [None], self._renderError("No more operators to identify.")
         current_op_index = operator_indices[nIDed]
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
         # Check which checkboxes were ticked
         selected = [False] * len(ownership)
         for key in form_data.keys():
@@ -670,17 +669,10 @@ class QuestionManager:
             if selected[i] != answer_key[i]:
                 correct = False
                 break
-        HTML_response = ""
         if correct:
             # Update the cookie to mark the next operator as to be identified
             response_cookie = self.bake_cookie(st, True, nIDed + 1, [], [], 0, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' aria-label='Continue' /></form>"
-        else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+        HTML_response = self._renderResult(correct)
         return [response_cookie], HTML_response
 
     def checkOrderSubstatementsPage(self, form_data, st, fingerprint):
@@ -690,7 +682,7 @@ class QuestionManager:
         ownership = st.printStringAndOwnership()[1]
         response_cookie = None
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
 
         # Make a list of the selected values
         selected_ordering = [None] * len(substatements)
@@ -712,9 +704,7 @@ class QuestionManager:
                     valid = False
                     break
         if not valid:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Invalid Ordering</title></head><body><h1>Invalid ordering. Try again.</h1></body></html>"
-            # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+            HTML_response = self._renderResult(False, title="Invalid Ordering", heading="Invalid ordering. Try again.")
             return [None], HTML_response
         #Convert the ordering from 1-indexed to 0-indexed
         selected_ordering = [x - 1 for x in selected_ordering]
@@ -735,24 +725,17 @@ class QuestionManager:
         # What would tt_order need to be reordered by to match selected_ordering?
         # Get the indices of each substatement in tt_order
         tt_indices = [tt_order.index(s) for s in ordered_substatements]
-        HTML_response = ""
         if correct:
             # Update the cookie with the new ordering
             response_cookie = self.bake_cookie(st, True, len(substatements), tt_indices, [], 0, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' aria-label='Continue' /></form>"
-        else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+        HTML_response = self._renderResult(correct)
         return [response_cookie], HTML_response
 
     def checkTruthTablePage(self, form_data, st, ordering, question_type, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, list[int], str, str) -> tuple[list[str|None], str]
         cookie_text = None
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
         simple = list(st.reportSimpleStatements())
         statements = list(st.reportAllSubstatements())
         statements.sort()
@@ -761,7 +744,7 @@ class QuestionManager:
             if len(ordering) == len(statements):
                 statements = [statements[i] for i in ordering]
             else:
-                return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Ordering length does not match number of statements.</h1></body></html>"
+                return [None], self._renderError("Ordering length does not match number of statements.")
         nrows = 2**len(simple)
         ncols = len(statements)
         n, m = nrows, ncols
@@ -775,27 +758,19 @@ class QuestionManager:
         result = evaluateTruthTable(df, st, statements)
         correct = result[0]
         tt_ordering = result[1]
-        HTML_response = ""
         if correct:
             cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_ordering, 0, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            if question_type == 'Statement':
-                # Add a button to "Try another question" that links to /
-                HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try another question' aria-label='Try another question' /></form>"
-            else:
-                # Add a button to "Continue" that links to the main page
-                HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' aria-label='Continue' /></form>"
+            button_label = 'Try another question' if question_type == 'Statement' else 'Continue'
+            HTML_response = self._renderResult(True, button_label=button_label)
         else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that links to /
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+            HTML_response = self._renderResult(False)
 
         return [cookie_text], HTML_response
     def checkIdentifyColumnsPage(self, form_data, st, ordering, tt_row_ordering, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, list[int], list[int], str) -> tuple[list[str|None], str]
         cookie_text = None
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
         statements = list(st.reportAllSubstatements())
         statements.sort()
         # Reorder the statements according to the provided ordering
@@ -803,10 +778,10 @@ class QuestionManager:
             if len(ordering) == len(statements):
                 statements = [statements[i] for i in ordering]
             else:
-                return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Ordering length does not match number of statements.</h1></body></html>"
+                return [None], self._renderError("Ordering length does not match number of statements.")
         # Check if the marked columns correspond to the two sub-statements of the equivalence
         if not isinstance(st, equivalence.Equivalence):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Current statement is not an equivalence.</h1></body></html>"
+            return [None], self._renderError("Current statement is not an equivalence.")
         left, right = st.statement1, st.statement2
         left_index = statements.index(left)
         right_index = statements.index(right)
@@ -826,53 +801,41 @@ class QuestionManager:
         answer_key[right_index] = True
         logger.logger.info("Answer key: %s", answer_key)
         correct = (selected == answer_key)
-        HTML_response = ""
         if correct:
             # Update the cookie to mark the next step as to be answered
             cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 1, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' aria-label='Continue' /></form>"
-        else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+        HTML_response = self._renderResult(correct)
         return [cookie_text], HTML_response
 
     def checkEquivalencePage(self, form_data, st, ordering, tt_row_ordering, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, list[int], list[int], str) -> tuple[list[str|None], str]
         cookie_text = None
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
         if 'equiv' not in form_data:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: No answer selected.</h1></body></html>"
+            return [None], self._renderError("No answer selected.")
         answer = form_data['equiv']
         if answer not in ['yes', 'no']:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Invalid answer selected.</h1></body></html>"
+            return [None], self._renderError("Invalid answer selected.")
         if not isinstance(st, equivalence.Equivalence):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Current statement is not an equivalence.</h1></body></html>"
+            return [None], self._renderError("Current statement is not an equivalence.")
         answer_bool = (answer == 'yes')
         # Determine if the two statements are actually equivalent
         answer = st.checkEquivalence()
         correct = (answer == answer_bool)
-        HTML_response = ""
         if correct:
             # Update the cookie to mark the question as completed
             cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 2, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            # Add a button to "Try another question" that links to /
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try another question' aria-label='Try another question' /></form>"
+            HTML_response = self._renderResult(True, button_label='Try another question')
         else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that links to /
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+            HTML_response = self._renderResult(False)
         return [cookie_text], HTML_response
 
     def checkIdentifyArgumentPremiseColumnsPage(self, form_data, st, ordering, tt_row_ordering, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, list[int], list[int], str) -> tuple[list[str|None], str]
         cookie_text = None
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
         simple = list(st.reportSimpleStatements())
         statements = list(st.reportAllSubstatements())
         statements.sort()
@@ -881,10 +844,10 @@ class QuestionManager:
             if len(ordering) == len(statements):
                 statements = [statements[i] for i in ordering]
             else:
-                return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Ordering length does not match number of statements.</h1></body></html>"
+                return [None], self._renderError("Ordering length does not match number of statements.")
         # Check if the marked columns correspond to the premises and conclusion of the argument
         if not isinstance(st, argument.Argument):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Current statement is not an argument.</h1></body></html>"
+            return [None], self._renderError("Current statement is not an argument.")
         conclusion = st.conclusion
         premises = st.premises
         conclusion_index = statements.index(conclusion)
@@ -905,30 +868,23 @@ class QuestionManager:
             answer_key[pi] = True
         logger.logger.info("Answer key: %s", answer_key)
         correct = (selected == answer_key)
-        HTML_response = ""
         if correct:
             # Update the cookie to mark the next step as to be answered
             cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 1, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' aria-label='Continue' /></form>"
-        else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+        HTML_response = self._renderResult(correct)
         return [cookie_text], HTML_response
-    
+
     def checkIdentifyArgumentRowsPage(self, form_data, st, ordering, tt_row_ordering, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, list[int], list[int], str) -> tuple[list[str|None], str]
         cookie_text = None
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
         # Re-create the truth table
         if not isinstance(st, argument.Argument):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Current statement is not an argument.</h1></body></html>"
+            return [None], self._renderError("Current statement is not an argument.")
         df = recreateTruthTable(st, ordering, tt_row_ordering)
         if df is None:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Could not recreate truth table.</h1></body></html>"
+            return [None], self._renderError("Could not recreate truth table.")
         # Find all rows where all premises are true
         premise_columns = [p.prettyPrint() for p in st.premises]
         relevant_rows = [False] * len(df)
@@ -949,27 +905,20 @@ class QuestionManager:
         logger.logger.info("Selected rows: %s", selected)
         logger.logger.info("Answer key: %s", relevant_rows)
         correct = (selected == relevant_rows)
-        HTML_response = ""
         if correct:
             # Update the cookie to mark the next step as to be answered
             cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 2, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' aria-label='Continue' /></form>"
-        else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+        HTML_response = self._renderResult(correct)
         return [cookie_text], HTML_response
 
     def checkIdentifyArgumentConclusionColumnPage(self, form_data, st, ordering, tt_row_ordering, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, list[int], list[int], str) -> tuple[list[str|None], str]
         cookie_text = None
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
         # Re-create column list
         if not isinstance(st, argument.Argument):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Current statement is not an argument.</h1></body></html>"
+            return [None], self._renderError("Current statement is not an argument.")
         statements = list(st.reportAllSubstatements())
         statements.sort()
         # Reorder the statements according to the provided ordering
@@ -977,7 +926,7 @@ class QuestionManager:
             if len(ordering) == len(statements):
                 statements = [statements[i] for i in ordering]
             else:
-                return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Ordering length does not match number of statements.</h1></body></html>"
+                return [None], self._renderError("Ordering length does not match number of statements.")
         conclusion = st.conclusion
         conclusion_index = statements.index(conclusion)
         selected = [False] * len(statements)
@@ -995,48 +944,36 @@ class QuestionManager:
         answer_key[conclusion_index] = True
         logger.logger.info("Answer key: %s", answer_key)
         correct = (selected == answer_key)
-        HTML_response = ""
         if correct:
             # Update the cookie to mark the next step as to be answered
             cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 3, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            # Add a button to "Continue" that links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Continue' aria-label='Continue' /></form>"
-        else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that also links to the main page
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+        HTML_response = self._renderResult(correct)
         return [cookie_text], HTML_response
 
     def checkArgumentValidityPage(self, form_data, st, ordering, tt_row_ordering, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, list[int], list[int], str) -> tuple[list[str|None], str]
         cookie_text = None
         if form_data is None:
-            return [None], "No form data received."
+            return [None], self._renderError("No form data received.")
         if 'valid' not in form_data:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: No answer selected.</h1></body></html>"
+            return [None], self._renderError("No answer selected.")
         answer = form_data['valid']
         if answer not in ['yes', 'no']:
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Invalid answer selected.</h1></body></html>"
+            return [None], self._renderError("Invalid answer selected.")
         if not isinstance(st, argument.Argument):
-            return [None], "<html  lang='en'><head><meta charset='UTF-8'><title>Error</title></head><body><h1>Error: Current statement is not an argument.</h1></body></html>"
+            return [None], self._renderError("Current statement is not an argument.")
         answer_bool = (answer == 'yes')
         # Determine if the argument is actually valid
         answer = st.checkValidity()
         correct = (answer == answer_bool)
-        HTML_response = ""
         if correct:
             # Update the cookie to mark the question as completed
             cookie_text = self.bake_cookie(st, True, len(list(st.reportAllSubstatements())), ordering, tt_row_ordering, 4, fingerprint)
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Correct</title></head><body><h1>Correct!</h1></body></html>"
-            # Add a button to "Try another question" that links to /
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try another question' aria-label='Try another question' /></form>"
+            HTML_response = self._renderResult(True, button_label='Try another question')
         else:
-            HTML_response = "<html  lang='en'><head><meta charset='UTF-8'><title>Incorrect</title></head><body><h1>Incorrect. Try again.</h1></body></html>"
-            # Add a button to "Try again" that links to /
-            HTML_response += "<form method='GET' action='/app'><input type='submit' value='Try again' aria-label='Try again' /></form>"
+            HTML_response = self._renderResult(False)
         return [cookie_text], HTML_response
-        
+
     def bake_cookie(self, st, split, nIDed, ordering, tt_row_ordering, subsequent_step, fingerprint):
         #type: (statementInterface.LogicalStatementInterface, bool, int, list[int], list[int], int, str) -> str
         cookie_question = cookieEncode(st.prettyPrint())
