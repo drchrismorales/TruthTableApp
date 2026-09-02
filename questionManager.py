@@ -28,13 +28,70 @@ HOMEWORK_SETS = [
     HomeworkSet("5", 4, questionGenerator.HomeworkThree)
 ]
 
-def activeHomework():
+QUESTION_COOKIE_MAX_AGE = 60 * 60 * 24 * 182  # ~6 months, the rough duration of a college semester
+
+ACTIVE_HOMEWORK_COOKIE_NAME = "activeHomework"
+
+def homeworkSetByNumber(number):
+    #type: (str) -> HomeworkSet|None
+    for hwk in HOMEWORK_SETS:
+        if hwk.number == number:
+            return hwk
+    return None
+
+# The homework set selected by config.txt (ignoring any per-student override cookie).
+def configuredHomework():
+    #type: () -> HomeworkSet
     hwkset = settings.activeHomeworkID()
     if hwkset is not None:
         for hwk in HOMEWORK_SETS:
             if hwk.number == hwkset:
                 return hwk
     return HOMEWORK_SETS[0]  # Default to the first homework set if not specified or not found
+
+# The activeHomework cookie's homework, if set and valid, else configuredHomework().
+def activeHomework(headers):
+    #type: (dict) -> HomeworkSet
+    cookie_value = retrieve_active_homework_cookie(headers)
+    if cookie_value is not None:
+        for hwk in HOMEWORK_SETS:
+            if hwk.number == cookie_value:
+                return hwk
+    return configuredHomework()
+
+def retrieve_active_homework_cookie(headers):
+    #type: (dict) -> str|None
+    cookie_header = headers.get('Cookie')
+    if not cookie_header:
+        return None
+    for cookie in cookie_header.split(';'):
+        if f'{ACTIVE_HOMEWORK_COOKIE_NAME}=' in cookie:
+            return cookie.split('=', 1)[1].strip()
+    return None
+
+# Seconds remaining until the next midnight (server local time).
+def secondsUntilMidnight():
+    #type: () -> int
+    now = pd.Timestamp.now()
+    midnight = (now + pd.Timedelta(days=1)).normalize()
+    return int((midnight - now).total_seconds())
+
+def bake_active_homework_cookie(hwk_number):
+    #type: (str) -> str
+    return f"{ACTIVE_HOMEWORK_COOKIE_NAME}={hwk_number}; Max-Age={secondsUntilMidnight()}; Path=/"
+
+# Homeworks a student may switch to: the configured one and everything before it.
+def eligibleHomeworkSets():
+    #type: () -> list[HomeworkSet]
+    ceiling_index = HOMEWORK_SETS.index(configuredHomework())
+    return HOMEWORK_SETS[:ceiling_index + 1]
+
+# Bakes a fresh activeHomework cookie if the student doesn't have one yet, else None.
+def determine_active_homework(headers):
+    #type: (dict) -> str|None
+    if retrieve_active_homework_cookie(headers) is not None:
+        return None
+    return bake_active_homework_cookie(activeHomework(headers).number)
 
 class QuestionManager:
     # Single place that assembles a full HTML document. Every response method builds an inner
@@ -68,10 +125,10 @@ class QuestionManager:
         body += "<form method='GET' action='/app'><input type='submit' value='Return to app' aria-label='Return to app' /></form>"
         return self._renderPage("Error", body)
 
-    def newQuestionPage(self, origin_ip, completion_codes = [], completion_string=None):
-        #type: (str, list[str], str) -> tuple[list[str|None], str]
-        st = self.getNewQuestion(completion_codes)
-        activehwk = activeHomework()
+    def newQuestionPage(self, origin_ip, headers_adapter, completion_codes = [], completion_string=None, completion_codes_hwk=None):
+        #type: (str, dict, list[str], str, HomeworkSet|None) -> tuple[list[str|None], str]
+        st = self.getNewQuestion(completion_codes, headers_adapter)
+        activehwk = activeHomework(headers_adapter)
         # Create a unique fingerprint for the question instance to allow detection of cookie tampering
         #  Note: We're not going to try to obscure what information is preserved in the cookie, nor totally prevent tampering,
         #  as it's all in good fun. But we do want to be able to detect if problems are substituted, or if two students submit the same completion token.
@@ -96,7 +153,9 @@ class QuestionManager:
         if completion_string is not None:
             response_body += f"<p>{completion_string}</p>"
         if completion_codes != []:
-            response_body += f"<p>Your completion codes (submit a set of {activehwk.toDo} on Brightspace to complete homework {activehwk.number} part B):</p><br>"
+            # completion_codes may belong to a homework other than the currently active one.
+            codes_hwk = completion_codes_hwk if completion_codes_hwk is not None else activehwk
+            response_body += f"<p>Your completion codes (submit a set of {codes_hwk.toDo} on Brightspace to complete homework {codes_hwk.number} part B):</p><br>"
             num = 1
             for code in completion_codes:
                 response_body += f"{num}: {formatCode(code)}<br>"
@@ -114,22 +173,13 @@ class QuestionManager:
     # Note that this DOES NOT check that the student completed all steps of the question, rather than manipulating the cookie to skip to the end.
     #  There are computer security students in the class, they can have their fun.
     def checkFingerprint(self, st, fingerprint_hex, fingerprint_list):
-        fernet = self.get_key()
-        activehwk = activeHomework()
-        try:
-            fingerprint_bytes = bytes.fromhex(fingerprint_hex)
-            decrypted_fingerprint = fernet.decrypt(fingerprint_bytes).decode()
-        except Exception as e:
-            logger.logger.error("Error decrypting fingerprint: %s", e)
+        parts = self.decrypt_fingerprint(fingerprint_hex)
+        if parts is None:
             return "Error: Invalid completion code."
-        parts = decrypted_fingerprint.split("[]")
-        if len(parts) != 5:
-            return "Error: Invalid completion code format."
         ip, time, statement, hwk, status = parts
-        if hwk != activehwk.number:
+        if not any(h.number == hwk for h in HOMEWORK_SETS):
             return "Error: Invalid completion code homework number."
         # Check if the fingerprint matches the current question
-        # Note, the sha1 check is meant to detect attempts to swap out parts of the encrypted fingerprint
         # Checking the assigned problem text vs. the current problem text detects attempts to sub in one's own (easier) problem
         if statement == st.prettyPrint():
             for code in fingerprint_list:
@@ -137,23 +187,23 @@ class QuestionManager:
                 if old_question is not None and old_question == statement:
                     return "This question has already been completed."
             # Approved, calculate completion code and add to list
-            completion_code = self.generate_completion_code(ip, time, statement)
+            # Credit hwk (the question's own homework), not whatever's active now.
+            completion_code = self.generate_completion_code(ip, time, statement, hwk)
             fingerprint_list.append(completion_code)
             return "Completion code accepted."
         return "Error: Invalid completion code."
     # Generate a completion code from the fingerprint parts
-    def generate_completion_code(self, ip, time, statement):
+    def generate_completion_code(self, ip, time, statement, hwk):
         fernet = self.get_key()
-        activehwk = activeHomework()
-        fingerprint = f"{ip}[]{time}[]{statement}[]{activehwk.number}[]Completed"
+        fingerprint = f"{ip}[]{time}[]{statement}[]{hwk}[]Completed"
         fingerprint_bytes = fingerprint.encode()
         encrypted_fingerprint = fernet.encrypt(fingerprint_bytes)
         return encrypted_fingerprint.hex()
 
-    # Decode a fingerprint hex string to statement text (for checking duplicates)
-    def decode_fingerprint(self, fingerprint_hex):
+    # Decrypts into (ip, time, statement, hwk, status), or None if malformed/tampered. No homework validation.
+    def decrypt_fingerprint(self, fingerprint_hex):
+        #type: (str) -> tuple[str,str,str,str,str]|None
         fernet = self.get_key()
-        activehwk = activeHomework()
         try:
             fingerprint_bytes = bytes.fromhex(fingerprint_hex)
             decrypted_fingerprint = fernet.decrypt(fingerprint_bytes).decode()
@@ -163,8 +213,15 @@ class QuestionManager:
         parts = decrypted_fingerprint.split("[]")
         if len(parts) != 5:
             return None
+        return tuple(parts)
+
+    # Decode a fingerprint hex string to statement text (for checking duplicates)
+    def decode_fingerprint(self, fingerprint_hex):
+        parts = self.decrypt_fingerprint(fingerprint_hex)
+        if parts is None:
+            return None
         ip, time, statement, hwk, status = parts
-        if hwk != activehwk.number:
+        if not any(h.number == hwk for h in HOMEWORK_SETS):
             return None
         return statement
     # Retrieve the encryption key
@@ -179,11 +236,11 @@ class QuestionManager:
         key = base64.urlsafe_b64encode(hashlib.sha256(keystr.encode()).digest())
         return f.Fernet(key)
 
-    def getNewQuestion(self, completion_codes):
-        #type: (list[str]) -> statementInterface.LogicalStatementInterface
+    def getNewQuestion(self, completion_codes, headers_adapter):
+        #type: (list[str], dict) -> statementInterface.LogicalStatementInterface
         # compile list of previous questions
         previous_questions = set()
-        activehwk = activeHomework()
+        activehwk = activeHomework(headers_adapter)
         for code in completion_codes:
             question = self.decode_fingerprint(code)
             if question is not None:
@@ -200,16 +257,18 @@ class QuestionManager:
         # Ask the student to identify all logical operators in the statement
         HTML_out = f"<h1>Split Statement</h1>"
         HTML_out = HTML_out + f"<h2>Identify the logical operators in the statement: </h2>"
-        # Output a table where each column contains a checkbox above one character of the statement
+        # Each character's checkbox/label pair is its own flex column of independent toggles.
         HTML_out = HTML_out + "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='split_check' />"
-        HTML_out = HTML_out + "<table border='1'><tr>"
+        HTML_out = HTML_out + "<div style='display:flex;'>"
         for i in range(len(questionStr)):
-            HTML_out = HTML_out + f"<td><input type='checkbox' name='op_{i}' aria-label='{questionStr[i]}' /></td>"
-        HTML_out = HTML_out + "</tr><tr>"
-        for i in range(len(questionStr)):
-            HTML_out = HTML_out + f"<td>{questionStr[i]}</td>"
-        HTML_out = HTML_out + "</tr></table>"
+            HTML_out = HTML_out + (
+                "<div style='display:flex; flex-direction:column; align-items:center;'>"
+                f"<input type='checkbox' name='op_{i}' aria-label='{questionStr[i]}' />"
+                f"<span>{questionStr[i]}</span>"
+                "</div>"
+            )
+        HTML_out = HTML_out + "</div>"
         HTML_out = HTML_out + "<input type='submit' value='Submit' aria-label='Submit' formaction='/app' />"
         HTML_out = HTML_out + "</form>"
         HTML_out += self.standardButtons()
@@ -230,33 +289,33 @@ class QuestionManager:
             # Should be impossible, we don't route here if nIDed is >= number of operators
             return [None], self._renderError("No more operators to identify.")
         current_op_index = operator_indices[nIDed]
-        # Print out a three-row table:
-        # Row 1: Largly empty, with an arrow symbol (↓) above the current operator
-        # Row 2: The characters of the statement, one per cell
-        # Row 3: Checkboxes, one per character, to identify which are part of the current operator (With no checkbox below the current operator)
+        # Each character gets a flex column (arrow/char/checkbox). No header row needed - each
+        # column's checkbox or span already has an aria-label.
         HTML_out = f"<h1>Identify Substatements</h1><h2>Which symbols belong to the substatement(s) of the indicated operator?</h2>"
         HTML_out = HTML_out + "<form method='GET' action='/app'>"
         HTML_out = HTML_out + "<input type='hidden' name='form_name' value='identify_substatements_check' />"
-        HTML_out = HTML_out + "<table border='1'>"
-        #hidden column headers for accessibility
+        HTML_out = HTML_out + "<div style='display:flex;'>"
         for i in range(len(questionStr)):
-            HTML_out = HTML_out + f"<th>{questionStr[i]}</th>"
-        HTML_out = HTML_out + "<tr>"
-        for i in range(len(questionStr)):
+            # An empty <span> collapses to zero height as a flex item, so use &nbsp; as a
+            # placeholder to keep columns aligned.
+            arrow = "↓" if i == current_op_index else "&nbsp;"
             if i == current_op_index:
-                HTML_out = HTML_out + "<th>↓</th>"
+                checkbox = "<input type='checkbox' disabled aria-hidden='true' style='visibility:hidden;' />"
+                # Checkbox is disabled, so the accessible name goes on this span instead:
+                # role='img' makes aria-label authoritative (a bare <span> may not get one), and
+                # tabindex='0' keeps it in the tab order since disabled inputs drop out of it.
+                char_span = f"<span role='img' tabindex='0' aria-current='true' aria-label='{questionStr[i]}, the operator you are identifying'>{questionStr[i]}</span>"
             else:
-                HTML_out = HTML_out + "<th></th>"
-        HTML_out = HTML_out + "</tr><tr>"
-        for i in range(len(questionStr)):
-            HTML_out = HTML_out + f"<td>{questionStr[i]}</td>"
-        HTML_out = HTML_out + "</tr><tr>"
-        for i in range(len(questionStr)):
-            if i == current_op_index:
-                HTML_out = HTML_out + "<td></td>"
-            else:
-                HTML_out = HTML_out + f"<td><input type='checkbox' name='sub_{i}' aria-label='{questionStr[i]}' /></td>"
-        HTML_out = HTML_out + "</tr></table>"
+                checkbox = f"<input type='checkbox' name='sub_{i}' aria-label='{questionStr[i]}' />"
+                char_span = f"<span>{questionStr[i]}</span>"
+            HTML_out = HTML_out + (
+                "<div style='display:flex; flex-direction:column; align-items:center;'>"
+                f"<span>{arrow}</span>"
+                f"{char_span}"
+                f"{checkbox}"
+                "</div>"
+            )
+        HTML_out = HTML_out + "</div>"
         HTML_out = HTML_out + "<input type='submit' value='Submit' aria-label='Submit' />"
         HTML_out = HTML_out + "</form>"
         HTML_out += self.standardButtons()
@@ -314,8 +373,9 @@ class QuestionManager:
         HTML_out = HTML_out + "<table border='1'><tr>"
         for j in range(m):
             HTML_out = HTML_out + f"<th>{statements[j].prettyPrint()}</th>"
-        HTML_out = HTML_out + "</tr><tr>"
+        HTML_out = HTML_out + "</tr>"
         for i in range(n):
+            HTML_out = HTML_out + "<tr>"
             for j in range(m):
                 HTML_out = HTML_out + (
                     f"<td><select name='field_{i}_{j}' aria-label='Truth value for row {i+1}, column {statements[j].prettyPrint()}'>"
@@ -452,16 +512,21 @@ class QuestionManager:
         for col in df.columns:
             HTML_out += f"<th>{col}</th>"
         HTML_out += "</tr>"
+        # Only premise columns (arrow-marked below) matter here; hide the rest from screen readers.
+        column_list = [p.prettyPrint() for p in st.premises]
         for i in range(len(df)):
             HTML_out += "<tr>"
             HTML_out += f"<td><input type='checkbox' name='row_{i}' aria-label='Row {i}' /></td>"
             for col in df.columns:
                 val = df.iloc[i][col]
-                HTML_out += f"<td>{'T' if val else 'F'}</td>"
+                cell_text = 'T' if val else 'F'
+                if col in column_list:
+                    HTML_out += f"<td>{cell_text}</td>"
+                else:
+                    HTML_out += f"<td aria-hidden='true'>{cell_text}</td>"
             HTML_out += "</tr>"
         # Print up arrows under the columns that contain the premises
         HTML_out += "<tr><td></td>"
-        column_list = [p.prettyPrint() for p in st.premises]
         for col in df.columns:
             if col in column_list:
                 HTML_out += "<td>↑</td>"
@@ -525,6 +590,9 @@ class QuestionManager:
             HTML_out += f"<th>{col}</th>"
         HTML_out += "</tr>"
         premise_columns = [p.prettyPrint() for p in st.premises]
+        conclusion_col = st.conclusion.prettyPrint()
+        # At this step, only the conclusion's value on premise-true rows matters; hide the arrow
+        # and every other column/value from screen readers as irrelevant.
         for i in range(len(df)):
             HTML_out += "<tr>"
             all_true = True
@@ -532,17 +600,18 @@ class QuestionManager:
                 if df.iloc[i][pcol] != True:
                     all_true = False
                     break
-            if all_true:
-                HTML_out += "<td>→</td>"
-            else:
-                HTML_out += "<td></td>"
+            arrow = "→" if all_true else ""
+            HTML_out += f"<td aria-hidden='true'>{arrow}</td>"
             for col in df.columns:
                 val = df.iloc[i][col]
-                HTML_out += f"<td>{'T' if val else 'F'}</td>"
+                cell_text = 'T' if val else 'F'
+                if col == conclusion_col and all_true:
+                    HTML_out += f"<td aria-label='{cell_text}, premise row'>{cell_text}</td>"
+                else:
+                    HTML_out += f"<td aria-hidden='true'>{cell_text}</td>"
             HTML_out += "</tr>"
         # Print up arrows under the column that contains the conclusion
         HTML_out += "<tr><td></td>"
-        conclusion_col = st.conclusion.prettyPrint()
         for col in df.columns:
             if col == conclusion_col:
                 HTML_out += "<td>↑</td>"
@@ -563,13 +632,18 @@ class QuestionManager:
 
     def completeQuestionPage(self, origin_ip, st, fingerprint, headers_adapter):
         #type: (str, statementInterface.LogicalStatementInterface, str, dict) -> tuple[list[str|None], str]
+        # Credit the homework embedded in the fingerprint, not whatever's active now. Falls back
+        # to active homework if unreadable/unrecognized; checkFingerprint rejects those anyway.
+        parts = self.decrypt_fingerprint(fingerprint)
+        completed_hwk = (homeworkSetByNumber(parts[3]) if parts is not None else None) or activeHomework(headers_adapter)
+        hwk_number = completed_hwk.number
         # Retrieve the list of previously-completed fingerprints from the cookie
-        activehwk = activeHomework()
-        fingerprint_list = self.retrieve_fingerprint_cookie(headers_adapter, activehwk.number)
+        fingerprint_list = self.retrieve_fingerprint_cookie(headers_adapter, hwk_number)
         completion_string = self.checkFingerprint(st, fingerprint, fingerprint_list)  # Final check to aprove or deny completion (Note: mutates fingerprint_list)
-        # The displayed page is actually the new question page.
-        response_cookie, response_body = self.newQuestionPage(origin_ip, fingerprint_list, completion_string)
-        response_cookie.append(self.bake_fingerprint_cookie(fingerprint_list))
+        # The displayed page is the new question page; its completion codes belong to
+        # completed_hwk, not necessarily the active homework.
+        response_cookie, response_body = self.newQuestionPage(origin_ip, headers_adapter, fingerprint_list, completion_string, completed_hwk)
+        response_cookie.append(self.bake_fingerprint_cookie(fingerprint_list, hwk_number))
         return response_cookie, response_body
     
     #Display all codes from all homeworks completed so far
@@ -592,6 +666,26 @@ class QuestionManager:
         #Add a button to return to the main page
         response_body += "<form method='GET' action='/app'><input type='submit' value='Return to current question' aria-label='Return to current question' /></form>"
         return [None], self._renderPage("Your Completion Codes", response_body)
+
+    # Radio buttons to pick a practice homework, restricted to eligibleHomeworkSets().
+    def setActiveHomeworkPage(self, headers_adapter):
+        #type: (dict) -> tuple[list[str|None], str]
+        current = activeHomework(headers_adapter)
+        HTML_out = "<h1>Set Active Homework</h1><h2>Choose which homework's questions you'd like to practice:</h2>"
+        HTML_out += "<form method='GET' action='/app'>"
+        HTML_out += "<input type='hidden' name='form_name' value='set_active_homework_check' />"
+        for hwk in eligibleHomeworkSets():
+            checked = " checked" if hwk.number == current.number else ""
+            HTML_out += (
+                f"<input type='radio' id='hwk_{hwk.number}' name='active_homework' value='{hwk.number}'{checked} />"
+                f"<label for='hwk_{hwk.number}'>Homework {hwk.number}</label><br>"
+            )
+        HTML_out += "<input type='submit' value='Submit' aria-label='Submit' />"
+        HTML_out += "</form>"
+        # Custom Navigation - standardButtons() would re-offer Set Active Homework here.
+        HTML_out += "<h2>Navigation</h2>"
+        HTML_out += "<form method='GET' action='/app'><input type='submit' value='Return to current question' aria-label='Return to current question' /></form>"
+        return [None], self._renderPage("Set Active Homework", HTML_out)
 
     def checkSplitStatementPage(self, form_data, st, fingerprint):
         #type: (dict, statementInterface.LogicalStatementInterface, str) -> tuple[list[str|None], str]
@@ -974,6 +1068,19 @@ class QuestionManager:
             HTML_response = self._renderResult(False)
         return [cookie_text], HTML_response
 
+    def checkSetActiveHomeworkPage(self, form_data, headers_adapter):
+        #type: (dict, dict) -> tuple[list[str|None], str]
+        if form_data is None or 'active_homework' not in form_data:
+            return [None], self._renderError("No homework selected.")
+        selected = form_data['active_homework']
+        eligible_numbers = [hwk.number for hwk in eligibleHomeworkSets()]
+        if selected not in eligible_numbers:
+            return [None], self._renderError("Invalid homework selected.")
+        cookie_text = bake_active_homework_cookie(selected)
+        HTML_out = f"<h1>Active homework set to {selected}.</h1>"
+        HTML_out += "<form method='GET' action='/app'><input type='submit' value='Continue' aria-label='Continue' /></form>"
+        return [cookie_text], self._renderPage("Active Homework Updated", HTML_out)
+
     def bake_cookie(self, st, split, nIDed, ordering, tt_row_ordering, subsequent_step, fingerprint):
         #type: (statementInterface.LogicalStatementInterface, bool, int, list[int], list[int], int, str) -> str
         cookie_question = cookieEncode(st.prettyPrint())
@@ -986,7 +1093,7 @@ class QuestionManager:
             cookie_tt_row_ordering = '[]'
         else:
             cookie_tt_row_ordering = '[' + ':'.join([str(i) for i in tt_row_ordering]) + ']'
-        response_cookie = f"current_question={cookie_question}&{cookie_split}&{nIDed}&{cookie_ordering}&{cookie_tt_row_ordering}&{subsequent_step}&{fingerprint}; Path=/"
+        response_cookie = f"current_question={cookie_question}&{cookie_split}&{nIDed}&{cookie_ordering}&{cookie_tt_row_ordering}&{subsequent_step}&{fingerprint}; Max-Age={QUESTION_COOKIE_MAX_AGE}; Path=/"
         return response_cookie
 
     # returns the current question Statement object from the cookie, or None if not found
@@ -1039,12 +1146,11 @@ class QuestionManager:
         st_DAG = st.rectifyGraph()
         return st, st_DAG, split, nIDed, ordering, tt_row_ordering, subsequent_step, fingerprint
 
-    def bake_fingerprint_cookie(self, fingerprint_list):
-        #type: (list[str]) -> str
+    def bake_fingerprint_cookie(self, fingerprint_list, hwk_number):
+        #type: (list[str], str) -> str
         # Join the fingerprint list into a single string with colons for cookie safety
-        activehwk = activeHomework()
         fingerprint_str = ":".join(fingerprint_list)
-        return f"hmwk{activehwk.number}_fingerprints={fingerprint_str}; Path=/"
+        return f"hmwk{hwk_number}_fingerprints={fingerprint_str}; Path=/"
 
     def retrieve_fingerprint_cookie(self, headers, hwkNum):
         #type: (str, str) -> list[str]
@@ -1086,7 +1192,10 @@ class QuestionManager:
         HTML_out += "<form method='GET' action='/app'>"
         HTML_out += "<input type='hidden' name='form_name' value='get_codes' />"
         HTML_out += "<input type='submit' value='Get Completion Codes' aria-label='Get Completion Codes' /></form>"
-        # Future note: Add a button to change homework number
+        # Add a button to change the active homework, with the form_name set to set_active_homework
+        HTML_out += "<form method='GET' action='/app'>"
+        HTML_out += "<input type='hidden' name='form_name' value='set_active_homework' />"
+        HTML_out += "<input type='submit' value='Set Active Homework' aria-label='Set Active Homework' /></form>"
         return HTML_out
 
 

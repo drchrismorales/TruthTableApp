@@ -70,6 +70,8 @@ def application(environ, start_response):
 
     headers_adapter = _wsgi_headers_adapter(environ)
 
+    active_homework_cookie = questionManager.determine_active_homework(headers_adapter)
+
     # Pull current question from cookie (as before)
     st, st_DAG, split, nIDed, ordering, tt_row_ordering, subsequent_step, fingerprint = (
         coreLogic.get_current_question_from_cookie(headers_adapter)
@@ -95,7 +97,7 @@ def application(environ, start_response):
 
     # On first visit or no question, start new question
     if st is None:
-        response_cookie, response_body = coreLogic.newQuestionPage(origin_ip)
+        response_cookie, response_body = coreLogic.newQuestionPage(origin_ip, headers_adapter)
     # Route to check pages based on form_name
     elif page == 'split_check':
         response_cookie, response_body = coreLogic.checkSplitStatementPage(form_data, st, fingerprint)
@@ -119,6 +121,10 @@ def application(environ, start_response):
         response_cookie, response_body = coreLogic.checkArgumentValidityPage(form_data, st_DAG, ordering, tt_row_ordering, fingerprint)
     elif page == 'get_codes':
         response_cookie, response_body = coreLogic.displayAllCompletionCodesPage(headers_adapter)
+    elif page == 'set_active_homework':
+        response_cookie, response_body = coreLogic.setActiveHomeworkPage(headers_adapter)
+    elif page == 'set_active_homework_check':
+        response_cookie, response_body = coreLogic.checkSetActiveHomeworkPage(form_data, headers_adapter)
     # Route to current question step pages based on status
     elif not split:
         response_cookie, response_body = coreLogic.splitStatementPage(st)
@@ -167,6 +173,13 @@ def application(environ, start_response):
         for cookie in response_cookie: # If there was no cookie set, the cookie list will typically contain None... because hysterical reasons
             if cookie is not None:
                 headers.append(('Set-Cookie', cookie))
+    # Don't clobber an activeHomework cookie the handler just set with the one auto-baked above.
+    already_setting_active_homework = any(
+        cookie is not None and cookie.startswith(f"{questionManager.ACTIVE_HOMEWORK_COOKIE_NAME}=")
+        for cookie in (response_cookie or [])
+    )
+    if active_homework_cookie is not None and not already_setting_active_homework:
+        headers.append(('Set-Cookie', active_homework_cookie))
 
     start_response('200 OK', headers)
     return [response_body.encode('utf-8')]
